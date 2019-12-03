@@ -1,0 +1,75 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+
+namespace kadmium_sacn_core
+{
+    public class RootLayer
+    {
+        static readonly short PREAMBLE_LENGTH = 0x0010;
+        static readonly short POSTAMBLE_LENGTH = 0x0000;
+        static readonly byte[] PACKET_IDENTIFIER = new byte[] {0x41, 0x53, 0x43, 0x2d, 0x45,
+                                             0x31, 0x2e, 0x31, 0x37, 0x00,
+                                             0x00, 0x00};
+        static readonly int ROOT_VECTOR = 0x00000004;
+
+        public FramingLayer FramingLayer { get; set; }
+        public short Length { get { return (short)(38 + FramingLayer.Length); } }
+        public Guid UUID { get; set; }
+
+        public RootLayer(Guid uuid, string sourceName, ushort universeID, byte sequenceID, byte[] data, byte priority, byte startCode = 0)
+        {
+            UUID = uuid;
+            FramingLayer = new FramingLayer(sourceName, universeID, sequenceID, data, priority, startCode);
+        }
+
+        public RootLayer()
+        {
+        }
+
+        public byte[] ToArray()
+        {
+            using (var stream = new MemoryStream(Length))
+            using (var buffer = new BigEndianBinaryWriter(stream))
+            {
+                buffer.Write(PREAMBLE_LENGTH);
+                buffer.Write(POSTAMBLE_LENGTH);
+                buffer.Write(PACKET_IDENTIFIER);
+                ushort flagsAndRootLength = (ushort)(SACNPacket.FLAGS | (ushort)(Length - 16));
+                buffer.Write(flagsAndRootLength);
+                buffer.Write(ROOT_VECTOR);
+                buffer.Write(UUID.ToByteArray());
+
+                buffer.Write(FramingLayer.ToArray());
+
+                return stream.ToArray();
+            }
+        }
+
+        internal static RootLayer Parse(BigEndianBinaryReader buffer)
+        {
+            short preambleLength = buffer.ReadInt16();
+            Debug.Assert(preambleLength == PREAMBLE_LENGTH);
+            short postambleLength = buffer.ReadInt16();
+            Debug.Assert(postambleLength == POSTAMBLE_LENGTH);
+            byte[] packetIdentifier = buffer.ReadBytes(12);
+            Debug.Assert(packetIdentifier.SequenceEqual(PACKET_IDENTIFIER));
+            ushort flagsAndRootLength = (ushort)buffer.ReadInt16();
+            ushort flags = (ushort)(flagsAndRootLength & SACNPacket.FIRST_FOUR_BITS_MASK);
+            Debug.Assert(flags == SACNPacket.FLAGS);
+            ushort length = (ushort)(flagsAndRootLength & SACNPacket.LAST_TWELVE_BITS_MASK);
+            int vector = buffer.ReadInt32();
+            Debug.Assert(vector == ROOT_VECTOR);
+            Guid cid = new Guid(buffer.ReadBytes(16));
+
+            var rootLayer = new RootLayer
+            {
+                UUID = cid,
+                FramingLayer = FramingLayer.Parse(buffer)
+            };
+
+            return rootLayer;
+        }
+    }
+}

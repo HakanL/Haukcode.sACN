@@ -1,15 +1,13 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.27130.2010
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29519.87
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{027C1A93-5E9D-4952-9426-5DBAFF13CF56}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{1BB50F91-0905-4E1C-B00D-B7E45CD510B3}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "kadmium-sacn-core", "src\kadmium-sacn-core\kadmium-sacn-core.csproj", "{8121791E-BB45-405F-81B0-774BF8E34044}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "kadmium-sacn-core.Test", "kadmium-sacn-core.Test\kadmium-sacn-core.Test.csproj", "{A774ACB0-BCFC-4C47-8FA1-02FA06D2CCF6}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "kadmium-sacn-core.Test", "kadmium-sacn-core.Test\kadmium-sacn-core.Test.csproj", "{A774ACB0-BCFC-4C47-8FA1-02FA06D2CCF6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

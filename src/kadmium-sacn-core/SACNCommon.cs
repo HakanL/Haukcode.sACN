@@ -12,7 +12,7 @@ namespace kadmium_sacn_core
         static byte MULTICAST_BYTE_2 = (byte)255;
         public static int SACN_PORT = 5568;
 
-        public static IPAddress GetMulticastAddress(UInt16 universeID)
+        public static IPAddress GetMulticastAddress(ushort universeID)
         {
             byte[] universeIDBytes = BitConverter.GetBytes(universeID).Reverse().ToArray();
             IPAddress multicastAddress = new IPAddress(new byte[] { MULTICAST_BYTE_1, MULTICAST_BYTE_2, universeIDBytes[0], universeIDBytes[1] });

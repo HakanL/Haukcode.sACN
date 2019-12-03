@@ -15,7 +15,7 @@ namespace kadmium_sacn_core
         private Task ListenTask { get; set; }
         private CancellationToken Token { get; set; }
 
-        public SACNListener(UInt16 universeID)
+        public SACNListener(ushort universeID)
         {
             Socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             IPAddress localAddress = IPAddress.Any;

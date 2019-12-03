@@ -6,22 +6,23 @@ using System.Threading.Tasks;
 
 namespace kadmium_sacn_core
 {
-    public class SACNSender
+    public class SACNSender : IDisposable
     {
+        private UdpClient udpClient { get; set; }
+
         public Guid UUID { get; set; }
-        private UdpClient Socket { get; set; }
         public IPAddress UnicastAddress { get; set; }
         public bool Multicast { get { return UnicastAddress == null; } }
         public int Port { get; set; }
         public string SourceName { get; set; }
 
-        private readonly Dictionary<UInt16, byte> sequenceIds = new Dictionary<ushort, byte>();
+        private readonly Dictionary<ushort, byte> sequenceIds = new Dictionary<ushort, byte>();
 
         public SACNSender(Guid uuid, string sourceName, int port)
         {
             SourceName = sourceName;
             UUID = uuid;
-            Socket = new UdpClient();
+            this.udpClient = new UdpClient();
             Port = port;
         }
 
@@ -32,37 +33,37 @@ namespace kadmium_sacn_core
         /// </summary>
         /// <param name="universeID">The universe ID to multicast to</param>
         /// <param name="data">Up to 512 bytes of DMX data</param>
-        public async Task Send(UInt16 universeID, byte[] data, byte priority = 100)
+        public async Task Send(ushort universeID, byte[] data, byte priority = 100)
         {
             this.sequenceIds.TryGetValue(universeID, out byte sequenceID);
             var packet = new SACNPacket(universeID, SourceName, UUID, sequenceID++, data, priority);
             this.sequenceIds[universeID] = sequenceID;
 
             byte[] packetBytes = packet.ToArray();
-            await Socket.SendAsync(packetBytes, packetBytes.Length, GetEndPoint(universeID, Port));
+            await udpClient.SendAsync(packetBytes, packetBytes.Length, GetEndPoint(universeID, Port));
         }
 
         /// <summary>
         /// Unicast send
         /// </summary>
         /// <param name="hostname">The hostname to unicast to</param>
-        /// <param name="universeID">The Universe ID</param>
+        /// <param name="universeId">The Universe ID</param>
         /// <param name="data">Up to 512 bytes of DMX data</param>
-        public async Task Send(string hostname, UInt16 universeID, byte[] data, byte priority = 100)
+        public async Task Send(string hostname, ushort universeId, byte[] data, byte priority = 100)
         {
-            this.sequenceIds.TryGetValue(universeID, out byte sequenceID);
-            var packet = new SACNPacket(universeID, SourceName, UUID, sequenceID++, data, priority);
-            this.sequenceIds[universeID] = sequenceID;
+            this.sequenceIds.TryGetValue(universeId, out byte sequenceID);
+            var packet = new SACNPacket(universeId, SourceName, UUID, sequenceID++, data, priority);
+            this.sequenceIds[universeId] = sequenceID;
 
             byte[] packetBytes = packet.ToArray();
-            await Socket.SendAsync(packetBytes, packetBytes.Length, hostname, Port);
+            await udpClient.SendAsync(packetBytes, packetBytes.Length, hostname, Port);
         }
 
-        private IPEndPoint GetEndPoint(UInt16 universeID, int port)
+        private IPEndPoint GetEndPoint(ushort universeId, int port)
         {
             if (Multicast)
             {
-                return new IPEndPoint(SACNCommon.GetMulticastAddress(universeID), port);
+                return new IPEndPoint(SACNCommon.GetMulticastAddress(universeId), port);
             }
             else
             {
@@ -70,9 +71,9 @@ namespace kadmium_sacn_core
             }
         }
 
-        public void Close()
+        public void Dispose()
         {
-            //Socket.Close();
+            this.udpClient.Dispose();
         }
     }
 }

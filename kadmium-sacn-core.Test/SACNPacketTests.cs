@@ -7,7 +7,7 @@ namespace kadmium_sacn_core.Test
     {
         [Theory]
         [InlineData(1)]
-        public void EncodeParse_UniverseIDIsCorrect(UInt16 universeID)
+        public void EncodeParse_UniverseIDIsCorrect(ushort universeID)
         {
             SACNPacket sourcePacket = new SACNPacket(universeID, "SourceName", new Guid(), 1, new byte[512], 1);
             byte[] packetData = sourcePacket.ToArray();
