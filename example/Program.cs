@@ -1,23 +1,23 @@
-﻿using kadmium_sacn_core;
+﻿using Haukcode.sACN;
 using System;
 using System.Threading;
 
-namespace kadmium_sacn_core_console
+namespace Haukcode.sACN.ConsoleExample
 {
-    class Program
+    public class Program
     {
-        static void Main(string[] args)
+        public static void Main(string[] args)
         {
             Listen();
         }
 
         static void Listen()
         {
-            SACNListener listener = new SACNListener(1);
+            var listener = new SACNListener(1);
             listener.OnPacket += Listener_OnPacket;
-            while(true)
+            while (true)
             {
-
+                Thread.Sleep(100);
             }
         }
 
@@ -31,7 +31,7 @@ namespace kadmium_sacn_core_console
 
         static void Send()
         {
-            SACNSender sender = new SACNSender(Guid.NewGuid(), "kadmium-sacn-core");
+            var sender = new SACNSender(Guid.NewGuid(), "kadmium-sacn-core");
             byte[] data =
             {
                 1, 2, 3, 4, 5, 255

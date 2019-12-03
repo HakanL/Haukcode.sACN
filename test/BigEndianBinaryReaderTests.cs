@@ -4,7 +4,7 @@ using System.IO;
 using System.Text;
 using Xunit;
 
-namespace kadmium_sacn_core.Test
+namespace Haukcode.sACN.Test
 {
     public class BigEndianBinaryReaderTests
     {

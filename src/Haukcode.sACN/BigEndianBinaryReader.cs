@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
-namespace kadmium_sacn_core
+namespace Haukcode.sACN
 {
     public class BigEndianBinaryReader : BinaryReader
     {

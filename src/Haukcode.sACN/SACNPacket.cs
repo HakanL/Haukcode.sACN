@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
 
-namespace kadmium_sacn_core
+namespace Haukcode.sACN
 {
     public class SACNPacket
     {

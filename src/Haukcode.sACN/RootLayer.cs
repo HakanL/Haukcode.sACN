@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
-namespace kadmium_sacn_core
+namespace Haukcode.sACN
 {
     public class RootLayer
     {

@@ -4,7 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 
-namespace kadmium_sacn_core
+namespace Haukcode.sACN
 {
     public class SACNSender : IDisposable
     {

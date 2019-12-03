@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 
-namespace kadmium_sacn_core
+namespace Haukcode.sACN
 {
 public class DMPLayer
     {

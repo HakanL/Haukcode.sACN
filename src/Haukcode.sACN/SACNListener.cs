@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace kadmium_sacn_core
+namespace Haukcode.sACN
 {
     public class SACNListener
     {

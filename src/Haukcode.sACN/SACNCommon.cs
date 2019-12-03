@@ -4,7 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Text;
 
-namespace kadmium_sacn_core
+namespace Haukcode.sACN
 {
     public static class SACNCommon
     {
