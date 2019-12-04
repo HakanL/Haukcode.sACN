@@ -2,16 +2,17 @@ using System;
 using System.Diagnostics;
 using System.IO;
 
-namespace Haukcode.sACN
+namespace Haukcode.sACN.Model
 {
-public class DMPLayer
+    public class DMPLayer
     {
-        static readonly byte DMP_VECTOR = 2;
-        static readonly byte ADDRESS_TYPE_AND_DATA_TYPE = 0xA1;
-        static readonly short FIRST_PROPERTY_ADDRESS = 0x00;
-        static readonly short ADDRESS_INCREMENT = 1;
+        private static readonly byte DMP_VECTOR = 2;
+        private static readonly byte ADDRESS_TYPE_AND_DATA_TYPE = 0xA1;
+        private static readonly short FIRST_PROPERTY_ADDRESS = 0x00;
+        private static readonly short ADDRESS_INCREMENT = 1;
 
         public byte StartCode { get; set; }
+
         public short Length { get { return (short)(11 + Data.Length); } }
 
         public byte[] Data { get; set; }
@@ -23,7 +24,6 @@ public class DMPLayer
 
         public byte[] ToArray()
         {
-            byte[] array;
             using (var stream = new MemoryStream(Length))
             using (var buffer = new BigEndianBinaryWriter(stream))
             {
@@ -38,9 +38,8 @@ public class DMPLayer
                 buffer.Write(StartCode);
                 buffer.Write(Data);
 
-                array = stream.ToArray();
+                return stream.ToArray();
             }
-            return array;
         }
 
         internal static DMPLayer Parse(BigEndianBinaryReader buffer)

@@ -5,9 +5,9 @@ namespace Haukcode.sACN
 {
     internal class BigEndianBinaryWriter : BinaryWriter
     {
-        public BigEndianBinaryWriter(Stream output) : base(output)
+        public BigEndianBinaryWriter(Stream output)
+            : base(output)
         {
-
         }
 
         public override void Write(short value)

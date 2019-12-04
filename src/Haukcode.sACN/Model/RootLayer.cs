@@ -3,19 +3,22 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
-namespace Haukcode.sACN
+namespace Haukcode.sACN.Model
 {
     public class RootLayer
     {
-        static readonly short PREAMBLE_LENGTH = 0x0010;
-        static readonly short POSTAMBLE_LENGTH = 0x0000;
-        static readonly byte[] PACKET_IDENTIFIER = new byte[] {0x41, 0x53, 0x43, 0x2d, 0x45,
-                                             0x31, 0x2e, 0x31, 0x37, 0x00,
-                                             0x00, 0x00};
-        static readonly int ROOT_VECTOR = 0x00000004;
+        private static readonly short PREAMBLE_LENGTH = 0x0010;
+        private static readonly short POSTAMBLE_LENGTH = 0x0000;
+        private static readonly byte[] PACKET_IDENTIFIER = new byte[] {
+            0x41, 0x53, 0x43, 0x2d, 0x45,
+            0x31, 0x2e, 0x31, 0x37, 0x00,
+            0x00, 0x00};
+        private static readonly int ROOT_VECTOR = 0x00000004;
 
         public FramingLayer FramingLayer { get; set; }
+
         public short Length { get { return (short)(38 + FramingLayer.Length); } }
+
         public Guid UUID { get; set; }
 
         public RootLayer(Guid uuid, string sourceName, ushort universeID, byte sequenceID, byte[] data, byte priority, byte startCode = 0)

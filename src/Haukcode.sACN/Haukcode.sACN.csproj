@@ -4,23 +4,33 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <AssemblyName>Haukcode.sACN</AssemblyName>
     <PackageId>Haukcode.sACN</PackageId>
-    <NetStandardImplicitPackageVersion>1.6.0</NetStandardImplicitPackageVersion>
     <PackageTargetFallback>$(PackageTargetFallback);dnxcore50</PackageTargetFallback>
     <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
     <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
     <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
-    <Version>1.0.0</Version>
+    <Version>1.0.6</Version>
     <Authors>Hakan Lindestaf;Jesse Higginson</Authors>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <Title>Kadmium-sACN-Core</Title>
+    <Title>Haukcode.sACN</Title>
     <PackageProjectUrl>https://github.com/HakanL/Haukcode.sACN</PackageProjectUrl>
     <Description>A simple sACN library for .NET Core</Description>
     <Copyright></Copyright>
     <PackageTags>sACN;DMX</PackageTags>
-    <PackageReleaseNotes>1.0.0 - Refactored</PackageReleaseNotes>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
+    <PackageReleaseNotes>1.0.0 - Refactored
+1.0.1 - Added methods to find local IPAddress
+1.0.2 - Added method for multi-universe listener
+1.0.3 - Changed DMXData property
+1.0.4 - Changed API for GetAddressesFromInterfaceType
+1.0.5 - Added method to list network adapters
+1.0.6 - Removed unused dependency</PackageReleaseNotes>
+    <AssemblyVersion>1.0.6.0</AssemblyVersion>
+    <FileVersion>1.0.6.0</FileVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Net.NetworkInformation" Version="4.3.0" />
+    <PackageReference Include="System.Reactive" Version="4.2.0" />
+  </ItemGroup>
 
 </Project>

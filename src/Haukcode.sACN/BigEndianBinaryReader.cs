@@ -8,14 +8,14 @@ namespace Haukcode.sACN
 {
     public class BigEndianBinaryReader : BinaryReader
     {
-        public BigEndianBinaryReader(Stream input) : base(input)
+        public BigEndianBinaryReader(Stream input)
+            : base(input)
         {
-
         }
 
-        public BigEndianBinaryReader(Stream input, Encoding encoding) : base(input, encoding)
+        public BigEndianBinaryReader(Stream input, Encoding encoding)
+            : base(input, encoding)
         {
-
         }
 
         public override short ReadInt16()
@@ -29,6 +29,7 @@ namespace Haukcode.sACN
         {
             byte[] bytes = base.ReadBytes(2);
             ushort converted = BitConverter.ToUInt16(bytes, 0);
+
             return (ushort)System.Net.IPAddress.NetworkToHostOrder((short)converted);
         }
 
@@ -36,7 +37,8 @@ namespace Haukcode.sACN
         {
             byte[] bytes = base.ReadBytes(4);
             int converted = BitConverter.ToInt32(bytes, 0);
-            return System.Net.IPAddress.NetworkToHostOrder(converted); ;
+
+            return System.Net.IPAddress.NetworkToHostOrder(converted);
         }
     }
 }

@@ -6,20 +6,26 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
-namespace Haukcode.sACN
+namespace Haukcode.sACN.Model
 {
     public class FramingLayer
     {
-        static readonly int FRAMING_VECTOR = 0x00000002;
-        static readonly short RESERVED = 0;
-        static readonly int SourceNameLength = 64;
+        private static readonly int FRAMING_VECTOR = 0x00000002;
+        private static readonly short RESERVED = 0;
+        private static readonly int SourceNameLength = 64;
 
         public DMPLayer DMPLayer { get; set; }
+
         public ushort Length { get { return (ushort)(13 + SourceNameLength + DMPLayer.Length); } }
+
         public string SourceName { get; set; }
+
         public ushort UniverseID { get; set; }
+
         public byte SequenceID { get; set; }
+
         public byte Priority { get; set; }
+
         public FramingOptions Options { get; set; }
 
         public FramingLayer(string sourceName, ushort universeID, byte sequenceID, byte[] data, byte priority, byte startCode = 0)
@@ -39,7 +45,6 @@ namespace Haukcode.sACN
 
         public byte[] ToArray()
         {
-            byte[] array;
             using (var stream = new MemoryStream(Length))
             using (var buffer = new BigEndianBinaryWriter(stream))
             {
@@ -56,10 +61,8 @@ namespace Haukcode.sACN
 
                 buffer.Write(DMPLayer.ToArray());
 
-                array = stream.ToArray();
+                return stream.ToArray();
             }
-
-            return array;
         }
 
         internal static FramingLayer Parse(BigEndianBinaryReader buffer)
