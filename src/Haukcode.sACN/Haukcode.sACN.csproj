@@ -8,7 +8,7 @@
     <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
     <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
     <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
-    <Version>1.0.6</Version>
+    <Version>1.0.7</Version>
     <Authors>Hakan Lindestaf;Jesse Higginson</Authors>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <Title>Haukcode.sACN</Title>
@@ -22,9 +22,10 @@
 1.0.3 - Changed DMXData property
 1.0.4 - Changed API for GetAddressesFromInterfaceType
 1.0.5 - Added method to list network adapters
-1.0.6 - Removed unused dependency</PackageReleaseNotes>
-    <AssemblyVersion>1.0.6.0</AssemblyVersion>
-    <FileVersion>1.0.6.0</FileVersion>
+1.0.6 - Removed unused dependency
+1.0.7 - Make it Linux-compatible</PackageReleaseNotes>
+    <AssemblyVersion>1.0.7.0</AssemblyVersion>
+    <FileVersion>1.0.7.0</FileVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

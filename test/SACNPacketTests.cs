@@ -1,4 +1,5 @@
 using System;
+using Haukcode.sACN.Model;
 using Xunit;
 
 namespace Haukcode.sACN.Test
@@ -9,11 +10,11 @@ namespace Haukcode.sACN.Test
         [InlineData(1)]
         public void EncodeParse_UniverseIDIsCorrect(ushort universeID)
         {
-            SACNPacket sourcePacket = new SACNPacket(universeID, "SourceName", new Guid(), 1, new byte[512], 1);
+            var sourcePacket = new SACNPacket(universeID, "SourceName", new Guid(), 1, new byte[512], 1);
             byte[] packetData = sourcePacket.ToArray();
 
-            SACNPacket parsedPacket = SACNPacket.Parse(packetData);
-            Assert.Equal(universeID, parsedPacket.UniverseID);
+            var parsedPacket = SACNPacket.Parse(packetData);
+            Assert.Equal(universeID, parsedPacket.UniverseId);
         }
 
         [Theory]
@@ -21,10 +22,10 @@ namespace Haukcode.sACN.Test
         public void EncodeParse_GuidIsCorrect(int a, short b, short c, byte d, byte e, byte f, byte g, byte h, byte i, byte j, byte k)
         {
             Guid expected = new Guid(a, b, c, d, e, f, g, h, i, j, k);
-            SACNPacket sourcePacket = new SACNPacket(1, "SourceName", expected, 1, new byte[512], 1);
+            var sourcePacket = new SACNPacket(1, "SourceName", expected, 1, new byte[512], 1);
             byte[] packetData = sourcePacket.ToArray();
 
-            SACNPacket parsedPacket = SACNPacket.Parse(packetData);
+            var parsedPacket = SACNPacket.Parse(packetData);
             Guid actual = parsedPacket.RootLayer.UUID;
             Assert.Equal(expected, actual);
         }
@@ -33,21 +34,21 @@ namespace Haukcode.sACN.Test
         [InlineData(1)]
         public void EncodeParse_SequenceIDIsCorrect(byte sequenceID)
         {
-            SACNPacket sourcePacket = new SACNPacket(1, "SourceName", new Guid(), sequenceID, new byte[512], 1);
+            var sourcePacket = new SACNPacket(1, "SourceName", new Guid(), sequenceID, new byte[512], 1);
             byte[] packetData = sourcePacket.ToArray();
 
-            SACNPacket parsedPacket = SACNPacket.Parse(packetData);
-            Assert.Equal(sequenceID, parsedPacket.SequenceID);
+            var parsedPacket = SACNPacket.Parse(packetData);
+            Assert.Equal(sequenceID, parsedPacket.SequenceId);
         }
 
         [Theory]
         [InlineData(15)]
         public void EncodeParse_PriorityIsCorrect(byte priority)
         {
-            SACNPacket sourcePacket = new SACNPacket(1, "SourceName", new Guid(), 1, new byte[512], priority);
+            var sourcePacket = new SACNPacket(1, "SourceName", new Guid(), 1, new byte[512], priority);
             byte[] packetData = sourcePacket.ToArray();
 
-            SACNPacket parsedPacket = SACNPacket.Parse(packetData);
+            var parsedPacket = SACNPacket.Parse(packetData);
             Assert.Equal(priority, parsedPacket.RootLayer.FramingLayer.Priority);
         }
 
@@ -55,10 +56,10 @@ namespace Haukcode.sACN.Test
         [InlineData("Source Name")]
         public void EncodeParse_SourceNameIsCorrect(string sourceName)
         {
-            SACNPacket sourcePacket = new SACNPacket(1, sourceName, new Guid(), 1, new byte[512], 1);
+            var sourcePacket = new SACNPacket(1, sourceName, new Guid(), 1, new byte[512], 1);
             byte[] packetData = sourcePacket.ToArray();
 
-            SACNPacket parsedPacket = SACNPacket.Parse(packetData);
+            var parsedPacket = SACNPacket.Parse(packetData);
             Assert.Equal(sourceName, parsedPacket.SourceName);
         }
     }

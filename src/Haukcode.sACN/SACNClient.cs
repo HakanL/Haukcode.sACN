@@ -75,7 +75,7 @@ namespace Haukcode.sACN
                 byte[] optionOutValue = new byte[4];
                 this.socket.IOControl((int)SIO_UDP_CONNRESET, optionInValue, optionOutValue);
             }
-            catch (SocketException)
+            catch
             {
                 Debug.WriteLine("Unable to set SIO_UDP_CONNRESET, maybe not supported.");
             }
