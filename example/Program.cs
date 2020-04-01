@@ -2,6 +2,7 @@
 using Haukcode.sACN.Model;
 using System;
 using System.Linq;
+using System.Net;
 using System.Reactive.Linq;
 using System.Threading;
 
@@ -19,12 +20,17 @@ namespace Haukcode.sACN.ConsoleExample
 
         static void Listen()
         {
-            var client = new SACNClient(
+            var recvClient = new SACNClient(
+                senderId: acnSourceId,
+                senderName: acnSourceName,
+                localAddress: IPAddress.Any);
+
+            var sendClient = new SACNClient(
                 senderId: acnSourceId,
                 senderName: acnSourceName,
                 localAddress: SACNCommon.GetFirstBindAddress());
 
-            client.OnError.Subscribe(e =>
+            recvClient.OnError.Subscribe(e =>
             {
                 Console.WriteLine($"Error! {e.Message}");
             });
@@ -35,19 +41,19 @@ namespace Haukcode.sACN.ConsoleExample
             //});
 
             double last = 0;
-            client.OnPacket.Subscribe(d =>
+            recvClient.OnPacket.Subscribe(d =>
             {
                 Listener_OnPacket(d.TimestampMS, d.TimestampMS - last, d.Packet);
                 last = d.TimestampMS;
             });
 
-            client.StartReceive();
-            client.JoinDMXUniverse(1);
-            client.JoinDMXUniverse(2);
+            recvClient.StartReceive();
+            recvClient.JoinDMXUniverse(1);
+            recvClient.JoinDMXUniverse(2);
 
             while (true)
             {
-                client.SendMulticast(1, new byte[] { 1, 2, 3, 4, 5 });
+                sendClient.SendMulticast(1, new byte[] { 1, 2, 3, 4, 5 });
 
                 Thread.Sleep(500);
             }

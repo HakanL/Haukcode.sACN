@@ -80,6 +80,7 @@ namespace Haukcode.sACN
                 Debug.WriteLine("Unable to set SIO_UDP_CONNRESET, maybe not supported.");
             }
 
+            this.socket.ExclusiveAddressUse = false;
             this.socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             this.socket.Bind(new IPEndPoint(localAddress, port));
 
