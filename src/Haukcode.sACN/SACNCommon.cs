@@ -36,7 +36,7 @@ namespace Haukcode.sACN
             foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces())
             {
                 if (adapter.SupportsMulticast && adapter.NetworkInterfaceType == interfaceType &&
-                    adapter.OperationalStatus == OperationalStatus.Up)
+                    (adapter.OperationalStatus == OperationalStatus.Up || adapter.OperationalStatus == OperationalStatus.Unknown))
                 {
 #if DEBUG
                     if (adapter.Name.Contains("Docker"))
