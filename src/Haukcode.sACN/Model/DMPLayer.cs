@@ -6,10 +6,10 @@ namespace Haukcode.sACN.Model
 {
     public class DMPLayer
     {
-        private static readonly byte DMP_VECTOR = 2;
-        private static readonly byte ADDRESS_TYPE_AND_DATA_TYPE = 0xA1;
-        private static readonly short FIRST_PROPERTY_ADDRESS = 0x00;
-        private static readonly short ADDRESS_INCREMENT = 1;
+        public const byte DMP_VECTOR = 2;
+        public const byte ADDRESS_TYPE_AND_DATA_TYPE = 0xA1;
+        public const short FIRST_PROPERTY_ADDRESS = 0x00;
+        public const short ADDRESS_INCREMENT = 1;
 
         public byte StartCode { get; set; }
 
@@ -27,7 +27,7 @@ namespace Haukcode.sACN.Model
             using (var stream = new MemoryStream(Length))
             using (var buffer = new BigEndianBinaryWriter(stream))
             {
-                ushort flagsAndDMPLength = (ushort)(SACNPacket.FLAGS | (ushort)Length);
+                ushort flagsAndDMPLength = (ushort)(SACNDataPacket.FLAGS | (ushort)Length);
 
                 buffer.Write(flagsAndDMPLength);
                 buffer.Write(DMP_VECTOR);

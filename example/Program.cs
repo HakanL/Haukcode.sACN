@@ -61,9 +61,13 @@ namespace Haukcode.sACN.ConsoleExample
 
         private static void Listener_OnPacket(double timestampMS, double sinceLast, SACNPacket e)
         {
+            var dataPacket = e as SACNDataPacket;
+            if (dataPacket == null)
+                return;
+
             Console.Write($"+{sinceLast:N2}\t");
-            Console.Write($"Packet from {e.SourceName}\tu{e.UniverseId}\ts{e.SequenceId}\t");
-            Console.WriteLine($"Data {string.Join(",", e.DMXData.Take(16))}...");
+            Console.Write($"Packet from {dataPacket.SourceName}\tu{dataPacket.UniverseId}\ts{dataPacket.SequenceId}\t");
+            Console.WriteLine($"Data {string.Join(",", dataPacket.DMXData.Take(16))}...");
         }
     }
 }

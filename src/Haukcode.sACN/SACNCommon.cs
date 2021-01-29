@@ -20,8 +20,9 @@ namespace Haukcode.sACN
         /// <returns></returns>
         public static IPAddress GetMulticastAddress(ushort universeId)
         {
-            byte[] universeIDBytes = BitConverter.GetBytes(universeId).Reverse().ToArray();
-            var multicastAddress = new IPAddress(new byte[] { MULTICAST_BYTE_1, MULTICAST_BYTE_2, universeIDBytes[0], universeIDBytes[1] });
+            byte highUniverseId = (byte)(universeId >> 8);
+            byte lowUniverseId = (byte)(universeId & 0xFF);
+            var multicastAddress = new IPAddress(new byte[] { MULTICAST_BYTE_1, MULTICAST_BYTE_2, highUniverseId, lowUniverseId });
 
             return multicastAddress;
         }

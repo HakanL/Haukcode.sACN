@@ -6,9 +6,9 @@ namespace Haukcode.sACN.Model
 {
     public class FramingOptions
     {
-        private static readonly byte FORCE_SYNCHRONIZATION = 0b0000_1000;
-        private static readonly byte STREAM_TERMINATED = 0b0000_0100;
-        private static readonly byte PREVIEW_DATA = 0b0000_0010;
+        public const byte FORCE_SYNCHRONIZATION = 0b0000_1000;
+        public const byte STREAM_TERMINATED = 0b0000_0100;
+        public const byte PREVIEW_DATA = 0b0000_0010;
 
         public bool PreviewData { get; set; }
 

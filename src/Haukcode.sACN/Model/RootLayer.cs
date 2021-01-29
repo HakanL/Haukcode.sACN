@@ -7,13 +7,14 @@ namespace Haukcode.sACN.Model
 {
     public class RootLayer
     {
-        private static readonly short PREAMBLE_LENGTH = 0x0010;
-        private static readonly short POSTAMBLE_LENGTH = 0x0000;
-        private static readonly byte[] PACKET_IDENTIFIER = new byte[] {
+        public const short PREAMBLE_LENGTH = 0x0010;
+        public const short POSTAMBLE_LENGTH = 0x0000;
+        public static readonly byte[] PACKET_IDENTIFIER = new byte[] {
             0x41, 0x53, 0x43, 0x2d, 0x45,
             0x31, 0x2e, 0x31, 0x37, 0x00,
             0x00, 0x00};
-        private static readonly int ROOT_VECTOR = 0x00000004;
+        public const int VECTOR_ROOT_E131_DATA = 0x00000004;
+        public const int VECTOR_ROOT_E131_EXTENDED = 0x00000008;
 
         public FramingLayer FramingLayer { get; set; }
 
@@ -21,10 +22,10 @@ namespace Haukcode.sACN.Model
 
         public Guid UUID { get; set; }
 
-        public RootLayer(Guid uuid, string sourceName, ushort universeID, byte sequenceID, byte[] data, byte priority, byte startCode = 0)
+        public RootLayer(Guid uuid, string sourceName, ushort universeID, byte sequenceID, byte[] data, byte priority, ushort syncAddress, byte startCode = 0)
         {
             UUID = uuid;
-            FramingLayer = new FramingLayer(sourceName, universeID, sequenceID, data, priority, startCode);
+            FramingLayer = new DataFramingLayer(sourceName, universeID, sequenceID, data, priority, syncAddress, startCode);
         }
 
         public RootLayer()
@@ -41,7 +42,7 @@ namespace Haukcode.sACN.Model
                 buffer.Write(PACKET_IDENTIFIER);
                 ushort flagsAndRootLength = (ushort)(SACNPacket.FLAGS | (ushort)(Length - 16));
                 buffer.Write(flagsAndRootLength);
-                buffer.Write(ROOT_VECTOR);
+                buffer.Write(FramingLayer.RootVector);
                 buffer.Write(UUID.ToByteArray());
 
                 buffer.Write(FramingLayer.ToArray());
@@ -63,16 +64,27 @@ namespace Haukcode.sACN.Model
             Debug.Assert(flags == SACNPacket.FLAGS);
             ushort length = (ushort)(flagsAndRootLength & SACNPacket.LAST_TWELVE_BITS_MASK);
             int vector = buffer.ReadInt32();
-            Debug.Assert(vector == ROOT_VECTOR);
             Guid cid = new Guid(buffer.ReadBytes(16));
 
-            var rootLayer = new RootLayer
+            switch (vector)
             {
-                UUID = cid,
-                FramingLayer = FramingLayer.Parse(buffer)
-            };
+                case VECTOR_ROOT_E131_DATA:
+                    return new RootLayer
+                    {
+                        UUID = cid,
+                        FramingLayer = DataFramingLayer.Parse(buffer)
+                    };
 
-            return rootLayer;
+                case VECTOR_ROOT_E131_EXTENDED:
+                    return new RootLayer
+                    {
+                        UUID = cid,
+                        FramingLayer = SyncFramingLayer.Parse(buffer)
+                    };
+
+                default:
+                    throw new ArgumentException($"Unknown vector {vector}");
+            }
         }
     }
 }

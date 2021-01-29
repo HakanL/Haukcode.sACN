@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Threading;
 using Haukcode.sACN.Model;
 
 namespace Haukcode.sACN
@@ -27,6 +28,7 @@ namespace Haukcode.sACN
         private readonly Stopwatch clock = new Stopwatch();
         private readonly SocketAsyncEventArgs receiveEventArgs;
         private readonly SocketAsyncEventArgs sendEventArgs;
+        private readonly ManualResetEvent socketCompletedEvent = new ManualResetEvent(false);
 
         public SACNClient(Guid senderId, string senderName, IPAddress localAddress, int port = 5568)
         {
@@ -166,10 +168,18 @@ namespace Haukcode.sACN
                 this.sendEventArgs.RemoteEndPoint = sendData.EndPoint;
                 this.sendEventArgs.SetBuffer(sendData.Data, 0, sendData.Data.Length);
 
+                this.socketCompletedEvent.Reset();
+
                 if (!this.socket.SendToAsync(this.sendEventArgs))
+                {
                     Process(this.sendEventArgs);
+                }
                 else
+                {
+                    // Block until complete
+                    this.socketCompletedEvent.WaitOne();
                     break;
+                }
             }
         }
 
@@ -208,6 +218,7 @@ namespace Haukcode.sACN
 
         private void Socket_Completed(object sender, SocketAsyncEventArgs e)
         {
+            this.socketCompletedEvent.Set();
             Process(e);
 
             switch (e.LastOperation)
@@ -260,36 +271,86 @@ namespace Haukcode.sACN
         }
 
         /// <summary>
-        /// Multicast send
+        /// Multicast send data
         /// </summary>
         /// <param name="universeId">The universe Id to multicast to</param>
         /// <param name="data">Up to 512 bytes of DMX data</param>
         /// <param name="priority">Priority (default 100)</param>
+        /// <param name="syncAddress">Sync universe id</param>
         /// <param name="startCode">Start code (default 0)</param>
-        public void SendMulticast(ushort universeId, byte[] data, byte priority = 100, byte startCode = 0)
+        public void SendMulticast(ushort universeId, byte[] data, byte priority = 100, ushort syncAddress = 0, byte startCode = 0)
         {
             byte sequenceId = GetNewSequenceId(universeId);
 
-            var packet = new SACNPacket(universeId, SenderName, SenderId, sequenceId, data, priority, startCode);
+            var packet = new SACNDataPacket(universeId, SenderName, SenderId, sequenceId, data, priority, syncAddress, startCode);
 
             SendPacket(SACNCommon.GetMulticastAddress(packet.UniverseId), packet);
         }
 
         /// <summary>
-        /// Unicast send
+        /// Unicast send data
         /// </summary>
         /// <param name="address">The address to unicast to</param>
         /// <param name="universeId">The Universe ID</param>
         /// <param name="data">Up to 512 bytes of DMX data</param>
-        public void SendUnicast(IPAddress address, ushort universeId, byte[] data, byte priority = 100, byte startCode = 0)
+        /// <param name="syncAddress">Sync universe id</param>
+        /// <param name="startCode">Start code (default 0)</param>
+        public void SendUnicast(IPAddress address, ushort universeId, byte[] data, byte priority = 100, ushort syncAddress = 0, byte startCode = 0)
         {
             byte sequenceId = GetNewSequenceId(universeId);
 
-            var packet = new SACNPacket(universeId, SenderName, SenderId, sequenceId, data, priority, startCode);
+            var packet = new SACNDataPacket(universeId, SenderName, SenderId, sequenceId, data, priority, syncAddress, startCode);
 
             SendPacket(address, packet);
         }
 
+        /// <summary>
+        /// Multicast send sync
+        /// </summary>
+        /// <param name="syncAddress">Sync universe id</param>
+        public void SendMulticastSync(ushort syncAddress)
+        {
+            byte sequenceId = GetNewSequenceId(syncAddress);
+
+            var packet = new SACNPacket(new RootLayer
+            {
+                UUID = SenderId,
+                FramingLayer = new SyncFramingLayer
+                {
+                    SequenceId = sequenceId,
+                    SyncAddress = syncAddress
+                }
+            });
+
+            SendPacket(SACNCommon.GetMulticastAddress(syncAddress), packet);
+        }
+
+        /// <summary>
+        /// Unicast send sync
+        /// </summary>
+        /// <param name="syncAddress">Sync universe id</param>
+        public void SendUnicastSync(IPAddress address, ushort syncAddress)
+        {
+            byte sequenceId = GetNewSequenceId(syncAddress);
+
+            var packet = new SACNPacket(new RootLayer
+            {
+                UUID = SenderId,
+                FramingLayer = new SyncFramingLayer
+                {
+                    SequenceId = sequenceId,
+                    SyncAddress = syncAddress
+                }
+            });
+
+            SendPacket(address, packet);
+        }
+
+        /// <summary>
+        /// Send packet
+        /// </summary>
+        /// <param name="destination">Destination</param>
+        /// <param name="packet">Packet</param>
         public void SendPacket(IPAddress destination, SACNPacket packet)
         {
             byte[] packetBytes = packet.ToArray();
