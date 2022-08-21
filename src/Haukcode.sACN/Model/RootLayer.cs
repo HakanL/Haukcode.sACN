@@ -22,14 +22,26 @@ namespace Haukcode.sACN.Model
 
         public Guid UUID { get; set; }
 
-        public RootLayer(Guid uuid, string sourceName, ushort universeID, byte sequenceID, byte[] data, byte priority, ushort syncAddress, byte startCode = 0)
-        {
-            UUID = uuid;
-            FramingLayer = new DataFramingLayer(sourceName, universeID, sequenceID, data, priority, syncAddress, startCode);
-        }
-
         public RootLayer()
         {
+        }
+
+        public static RootLayer CreateRootLayerData(Guid uuid, string sourceName, ushort universeID, byte sequenceID, byte[] data, byte priority, ushort syncAddress, byte startCode = 0)
+        {
+            return new RootLayer
+            {
+                UUID = uuid,
+                FramingLayer = new DataFramingLayer(sourceName, universeID, sequenceID, data, priority, syncAddress, startCode)
+            };
+        }
+
+        public static RootLayer CreateRootLayerSync(Guid uuid, byte sequenceID, ushort syncAddress)
+        {
+            return new RootLayer
+            {
+                UUID = uuid,
+                FramingLayer = new SyncFramingLayer(syncAddress, sequenceID)
+            };
         }
 
         public byte[] ToArray()
@@ -54,14 +66,22 @@ namespace Haukcode.sACN.Model
         internal static RootLayer Parse(BigEndianBinaryReader buffer)
         {
             short preambleLength = buffer.ReadInt16();
-            Debug.Assert(preambleLength == PREAMBLE_LENGTH);
+            if (preambleLength != PREAMBLE_LENGTH)
+                throw new InvalidDataException("preambleLength != PREAMBLE_LENGTH");
+
             short postambleLength = buffer.ReadInt16();
-            Debug.Assert(postambleLength == POSTAMBLE_LENGTH);
+            if (postambleLength != POSTAMBLE_LENGTH)
+                throw new InvalidDataException("postambleLength != POSTAMBLE_LENGTH");
+
             byte[] packetIdentifier = buffer.ReadBytes(12);
-            Debug.Assert(packetIdentifier.SequenceEqual(PACKET_IDENTIFIER));
+            if (!packetIdentifier.SequenceEqual(PACKET_IDENTIFIER))
+                throw new InvalidDataException("packetIdentifier != PACKET_IDENTIFIER");
+
             ushort flagsAndRootLength = (ushort)buffer.ReadInt16();
             ushort flags = (ushort)(flagsAndRootLength & SACNPacket.FIRST_FOUR_BITS_MASK);
-            Debug.Assert(flags == SACNPacket.FLAGS);
+            if (flags != SACNPacket.FLAGS)
+                throw new InvalidDataException("flags != SACNPacket.FLAGS");
+
             ushort length = (ushort)(flagsAndRootLength & SACNPacket.LAST_TWELVE_BITS_MASK);
             int vector = buffer.ReadInt32();
             Guid cid = new Guid(buffer.ReadBytes(16));

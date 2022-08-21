@@ -27,6 +27,7 @@ namespace Haukcode.sACN.Model
         {
             return RootLayer.ToArray();
         }
+
         public static SACNPacket Parse(byte[] packet)
         {
             using (var stream = new MemoryStream(packet))

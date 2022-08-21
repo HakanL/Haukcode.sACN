@@ -22,6 +22,7 @@ namespace Haukcode.sACN
         private readonly ISubject<ReceiveDataPacket> packetSubject;
         private readonly ConcurrentQueue<SendData> sendQueue = new ConcurrentQueue<SendData>();
         private readonly Dictionary<ushort, byte> sequenceIds = new Dictionary<ushort, byte>();
+        private readonly Dictionary<ushort, byte> sequenceIdsSync = new Dictionary<ushort, byte>();
         private readonly object lockObject = new object();
         private readonly HashSet<ushort> dmxUniverses = new HashSet<ushort>();
         private readonly byte[] buffer = new byte[ReceiveBufferSize];
@@ -310,7 +311,7 @@ namespace Haukcode.sACN
         /// <param name="syncAddress">Sync universe id</param>
         public void SendMulticastSync(ushort syncAddress)
         {
-            byte sequenceId = GetNewSequenceId(syncAddress);
+            byte sequenceId = GetNewSequenceIdSync(syncAddress);
 
             var packet = new SACNPacket(new RootLayer
             {
@@ -331,7 +332,7 @@ namespace Haukcode.sACN
         /// <param name="syncAddress">Sync universe id</param>
         public void SendUnicastSync(IPAddress address, ushort syncAddress)
         {
-            byte sequenceId = GetNewSequenceId(syncAddress);
+            byte sequenceId = GetNewSequenceIdSync(syncAddress);
 
             var packet = new SACNPacket(new RootLayer
             {
@@ -367,6 +368,20 @@ namespace Haukcode.sACN
                 sequenceId++;
 
                 this.sequenceIds[universeId] = sequenceId;
+
+                return sequenceId;
+            }
+        }
+
+        private byte GetNewSequenceIdSync(ushort syncAddress)
+        {
+            lock (this.lockObject)
+            {
+                this.sequenceIdsSync.TryGetValue(syncAddress, out byte sequenceId);
+
+                sequenceId++;
+
+                this.sequenceIdsSync[syncAddress] = sequenceId;
 
                 return sequenceId;
             }

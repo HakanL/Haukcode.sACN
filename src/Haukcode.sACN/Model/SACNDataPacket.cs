@@ -14,7 +14,7 @@ namespace Haukcode.sACN.Model
         public ushort UniverseId { get { return DataFramingLayer.UniverseId; } set { DataFramingLayer.UniverseId = value; } }
 
         public SACNDataPacket(ushort universeId, string sourceName, Guid uuid, byte sequenceId, byte[] data, byte priority, ushort syncAddress = 0, byte startCode = 0)
-            : base(new RootLayer(uuid, sourceName, universeId, sequenceId, data, priority, syncAddress, startCode))
+            : base(RootLayer.CreateRootLayerData(uuid, sourceName, universeId, sequenceId, data, priority, syncAddress, startCode))
         {
         }
 
