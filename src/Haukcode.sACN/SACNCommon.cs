@@ -13,6 +13,35 @@ namespace Haukcode.sACN
         static byte MULTICAST_BYTE_2 = (byte)255;
         public static int SACN_PORT = 5568;
 
+        public class Adapter
+        {
+            private readonly NetworkInterface networkInterface;
+
+            public NetworkInterfaceType Type => this.networkInterface.NetworkInterfaceType;
+
+            public string Id => this.networkInterface.Id;
+
+            public string Name => this.networkInterface.Name;
+
+            public string Description => this.networkInterface.Description;
+
+            public byte[] PhysicalAddress { get; private set; }
+
+            public bool IsHyperV => PhysicalAddress?.Length == 6 && PhysicalAddress[0] == 0x00 && PhysicalAddress[1] == 0x15 && PhysicalAddress[2] == 0x5D;
+
+            public IList<IPAddress> AllIpv4Addresses => this.networkInterface.GetIPProperties().UnicastAddresses
+                .Where(x => x.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                .Select(x => x.Address)
+                .ToList();
+
+            public Adapter(NetworkInterface input)
+            {
+                this.networkInterface = input;
+
+                PhysicalAddress = input.GetPhysicalAddress().GetAddressBytes();
+            }
+        }
+
         /// <summary>
         /// Get Multicast address from universe id
         /// </summary>
@@ -27,16 +56,11 @@ namespace Haukcode.sACN
             return multicastAddress;
         }
 
-        /// <summary>
-        /// Get the first local IPAddress from the specified interface type
-        /// </summary>
-        /// <param name="interfaceType">Interface type</param>
-        /// <returns>Local IPAddress</returns>
-        public static IEnumerable<(string AdapterName, IPAddress IPAddress)> GetAddressesFromInterfaceType(NetworkInterfaceType interfaceType)
+        public static IEnumerable<Adapter> GetAddressesFromInterfaceType(NetworkInterfaceType[] interfaceTypes, bool excludeHyperV = true)
         {
             foreach (NetworkInterface adapter in NetworkInterface.GetAllNetworkInterfaces())
             {
-                if (adapter.SupportsMulticast && adapter.NetworkInterfaceType == interfaceType &&
+                if (adapter.SupportsMulticast && interfaceTypes.Contains(adapter.NetworkInterfaceType) &&
                     (adapter.OperationalStatus == OperationalStatus.Up || adapter.OperationalStatus == OperationalStatus.Unknown))
                 {
 #if DEBUG
@@ -44,13 +68,15 @@ namespace Haukcode.sACN
                         // Skip Docker virtual adapters
                         continue;
 #endif
-                    IPInterfaceProperties ipProperties = adapter.GetIPProperties();
+                    var result = new Adapter(adapter);
+                    if (excludeHyperV && result.IsHyperV)
+                        continue;
 
-                    foreach (var ipAddress in ipProperties.UnicastAddresses)
-                    {
-                        if (ipAddress.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                            yield return (adapter.Name, ipAddress.Address);
-                    }
+                    // Only include adapters with IPv4 address(es)
+                    if (!result.AllIpv4Addresses.Any())
+                        continue;
+
+                    yield return result;
                 }
             }
         }
@@ -59,14 +85,25 @@ namespace Haukcode.sACN
         /// Return list of ethernet and WiFi network adapters
         /// </summary>
         /// <returns>List of name and IPAddress</returns>
-        public static IList<(string AdapterName, IPAddress IPAddress)> GetCommonInterfaces()
+        public static IList<(string AdapterName, string Description, IPAddress IPAddress)> GetCommonInterfaces(bool excludeHyperV = true)
         {
-            var list = new List<(string AdapterName, IPAddress IPAddress)>();
+            var list = new List<(string AdapterName, string Description, IPAddress IPAddress)>();
 
-            list.AddRange(GetAddressesFromInterfaceType(NetworkInterfaceType.Ethernet));
-            list.AddRange(GetAddressesFromInterfaceType(NetworkInterfaceType.Wireless80211));
+            foreach (var adapter in GetCommonAdapters(excludeHyperV))
+                list.AddRange(adapter.AllIpv4Addresses.Select(x => (adapter.Name, adapter.Description, x)));
 
             return list;
+        }
+
+        /// <summary>
+        /// Return list of ethernet and WiFi network adapters
+        /// </summary>
+        /// <returns>List of name and IPAddress</returns>
+        public static IList<Adapter> GetCommonAdapters(bool excludeHyperV = true)
+        {
+            var adapters = GetAddressesFromInterfaceType(new NetworkInterfaceType[] { NetworkInterfaceType.Ethernet, NetworkInterfaceType.Wireless80211 }, excludeHyperV);
+
+            return adapters.ToList();
         }
 
         /// <summary>
@@ -75,14 +112,17 @@ namespace Haukcode.sACN
         /// <returns>Local IPAddress</returns>
         public static IPAddress GetFirstBindAddress()
         {
-            // Try Ethernet first
-            var ipAddresses = GetAddressesFromInterfaceType(NetworkInterfaceType.Ethernet);
-            if (ipAddresses.Any())
-                return ipAddresses.First().IPAddress;
+            var adapters = GetCommonAdapters();
 
-            ipAddresses = GetAddressesFromInterfaceType(NetworkInterfaceType.Wireless80211);
-            if (ipAddresses.Any())
-                return ipAddresses.First().IPAddress;
+            // Try Ethernet first
+            var firstEthernetAdapter = adapters.FirstOrDefault(x => x.Type == NetworkInterfaceType.Ethernet);
+            if (firstEthernetAdapter != null)
+                return firstEthernetAdapter.AllIpv4Addresses.First();
+
+            // Then Wifi
+            var firstWifiAdapter = adapters.FirstOrDefault(x => x.Type == NetworkInterfaceType.Wireless80211);
+            if (firstWifiAdapter != null)
+                return firstWifiAdapter.AllIpv4Addresses.First();
 
             return null;
         }
