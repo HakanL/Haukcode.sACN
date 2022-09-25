@@ -27,6 +27,17 @@ namespace Haukcode.sACN
 
             public byte[] PhysicalAddress { get; private set; }
 
+            public string DisplayName
+            {
+                get
+                {
+                    if (Name == Description)
+                        return Name;
+                    else
+                        return $"{Name} ({Description})";
+                }
+            }
+
             public bool IsHyperV => PhysicalAddress?.Length == 6 && PhysicalAddress[0] == 0x00 && PhysicalAddress[1] == 0x15 && PhysicalAddress[2] == 0x5D;
 
             public IList<IPAddress> AllIpv4Addresses => this.networkInterface.GetIPProperties().UnicastAddresses
