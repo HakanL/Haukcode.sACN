@@ -40,9 +40,9 @@ namespace Haukcode.sACN
 
             public bool IsHyperV => PhysicalAddress?.Length == 6 && PhysicalAddress[0] == 0x00 && PhysicalAddress[1] == 0x15 && PhysicalAddress[2] == 0x5D;
 
-            public IList<IPAddress> AllIpv4Addresses => this.networkInterface.GetIPProperties().UnicastAddresses
+            public IList<(IPAddress IP, IPAddress NetMask)> AllIpv4Addresses => this.networkInterface.GetIPProperties().UnicastAddresses
                 .Where(x => x.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                .Select(x => x.Address)
+                .Select(x => (x.Address, x.IPv4Mask))
                 .ToList();
 
             public Adapter(NetworkInterface input)
@@ -96,12 +96,12 @@ namespace Haukcode.sACN
         /// Return list of ethernet and WiFi network adapters
         /// </summary>
         /// <returns>List of name and IPAddress</returns>
-        public static IList<(string AdapterName, string Description, IPAddress IPAddress)> GetCommonInterfaces(bool excludeHyperV = true)
+        public static IList<(string AdapterName, string Description, IPAddress IPAddress, IPAddress NetMask)> GetCommonInterfaces(bool excludeHyperV = true)
         {
-            var list = new List<(string AdapterName, string Description, IPAddress IPAddress)>();
+            var list = new List<(string AdapterName, string Description, IPAddress IPAddress, IPAddress NetMask)>();
 
             foreach (var adapter in GetCommonAdapters(excludeHyperV))
-                list.AddRange(adapter.AllIpv4Addresses.Select(x => (adapter.Name, adapter.Description, x)));
+                list.AddRange(adapter.AllIpv4Addresses.Select(x => (adapter.Name, adapter.Description, x.IP, x.NetMask)));
 
             return list;
         }
@@ -121,7 +121,7 @@ namespace Haukcode.sACN
         /// Find first matching local IPAddress, first ethernet, then WiFi
         /// </summary>
         /// <returns>Local IPAddress</returns>
-        public static IPAddress GetFirstBindAddress()
+        public static (IPAddress IPAddress, IPAddress NetMask) GetFirstBindAddress()
         {
             var adapters = GetCommonAdapters();
 
@@ -135,7 +135,7 @@ namespace Haukcode.sACN
             if (firstWifiAdapter != null)
                 return firstWifiAdapter.AllIpv4Addresses.First();
 
-            return null;
+            return (null, null);
         }
     }
 }
