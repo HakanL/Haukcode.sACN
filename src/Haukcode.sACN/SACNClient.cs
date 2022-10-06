@@ -104,7 +104,8 @@ namespace Haukcode.sACN
                         this.packetSubject.OnNext(new ReceiveDataPacket
                         {
                             TimestampMS = d.TimestampMS,
-                            Host = d.Host,
+                            Source = d.Source,
+                            Destination = d.Destination,
                             Packet = packet
                         });
                     }
@@ -208,7 +209,7 @@ namespace Haukcode.sACN
                     this.receiveRawSubject.OnNext(new ReceiveDataRaw
                     {
                         TimestampMS = timestampMS,
-                        Host = (IPEndPoint)e.RemoteEndPoint,
+                        Source = (IPEndPoint)e.RemoteEndPoint,
                         Data = receivedBytes
                     });
                 }

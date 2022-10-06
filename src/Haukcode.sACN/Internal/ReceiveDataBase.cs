@@ -9,6 +9,8 @@ namespace Haukcode.sACN
     {
         public double TimestampMS { get; set; }
 
-        public IPEndPoint Host { get; set; }
+        public IPEndPoint Source { get; set; }
+        
+        public IPEndPoint Destination { get; set; }
     }
 }
