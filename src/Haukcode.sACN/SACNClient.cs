@@ -144,6 +144,8 @@ namespace Haukcode.sACN
             Receive();
         }
 
+        public double ReceiveClock => this.clock.Elapsed.TotalMilliseconds;
+
         private void Receive()
         {
             while (true)
