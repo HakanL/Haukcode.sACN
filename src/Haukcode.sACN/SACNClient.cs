@@ -153,7 +153,7 @@ namespace Haukcode.sACN
             {
                 this.receiveEventArgs.RemoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
 
-                if (!this.socket.ReceiveFromAsync(this.receiveEventArgs))
+                if (!this.socket.ReceiveMessageFromAsync(this.receiveEventArgs))
                 {
                     Process(this.receiveEventArgs);
                 }
@@ -199,19 +199,23 @@ namespace Haukcode.sACN
                 return;
             }
 
-            if (e.LastOperation == SocketAsyncOperation.ReceiveFrom)
+            if (e.LastOperation == SocketAsyncOperation.ReceiveMessageFrom || e.LastOperation == SocketAsyncOperation.ReceiveFrom)
             {
                 try
                 {
                     byte[] receivedBytes = new byte[e.BytesTransferred];
                     Buffer.BlockCopy(e.Buffer, e.Offset, receivedBytes, 0, receivedBytes.Length);
 
-                    this.receiveRawSubject.OnNext(new ReceiveDataRaw
+                    var receiveData = new ReceiveDataRaw
                     {
                         TimestampMS = timestampMS,
                         Source = (IPEndPoint)e.RemoteEndPoint,
                         Data = receivedBytes
-                    });
+                    };
+                    if (e.ReceiveMessageFromPacketInfo.Address != null)
+                        receiveData.Destination = new IPEndPoint(e.ReceiveMessageFromPacketInfo.Address, ((IPEndPoint)this.socket.LocalEndPoint).Port);
+
+                    this.receiveRawSubject.OnNext(receiveData);
                 }
                 catch (Exception ex)
                 {
@@ -222,18 +226,26 @@ namespace Haukcode.sACN
 
         private void Socket_Completed(object sender, SocketAsyncEventArgs e)
         {
-            this.socketCompletedEvent.Set();
-            Process(e);
-
-            switch (e.LastOperation)
+            try
             {
-                case SocketAsyncOperation.ReceiveFrom:
-                    Receive();
-                    break;
+                this.socketCompletedEvent.Set();
+                Process(e);
 
-                case SocketAsyncOperation.SendTo:
-                    Send();
-                    break;
+                switch (e.LastOperation)
+                {
+                    case SocketAsyncOperation.ReceiveFrom:
+                    case SocketAsyncOperation.ReceiveMessageFrom:
+                        Receive();
+                        break;
+
+                    case SocketAsyncOperation.SendTo:
+                        Send();
+                        break;
+                }
+            }
+            catch
+            {
+                // Ignore (dispose error)
             }
         }
 
