@@ -162,7 +162,7 @@ namespace Haukcode.sACN
 
                 if (!this.listenSocket.ReceiveMessageFromAsync(receiveEventArgs))
                 {
-                    Process(receiveEventArgs);
+                    ProcessReceive(receiveEventArgs);
                 }
                 else
                     break;
@@ -183,7 +183,7 @@ namespace Haukcode.sACN
 
                 if (!this.sendSocket.SendToAsync(this.sendEventArgs))
                 {
-                    Process(this.sendEventArgs);
+                    ProcessSend(this.sendEventArgs);
                 }
                 else
                 {
@@ -194,7 +194,7 @@ namespace Haukcode.sACN
             }
         }
 
-        private void Process(SocketAsyncEventArgs e)
+        private void ProcessReceive(SocketAsyncEventArgs e)
         {
             // Capture the timestamp first so it's as accurate as possible
             double timestampMS = this.clock.Elapsed.TotalMilliseconds;
@@ -238,21 +238,32 @@ namespace Haukcode.sACN
             }
         }
 
+        private void ProcessSend(SocketAsyncEventArgs e)
+        {
+            if (e.SocketError != SocketError.Success)
+            {
+                this.errorSubject.OnNext(new SocketException((int)e.SocketError));
+
+                return;
+            }
+        }
+
         private void Socket_Completed(object sender, SocketAsyncEventArgs e)
         {
             try
             {
                 this.socketCompletedEvent.Set();
-                Process(e);
 
                 switch (e.LastOperation)
                 {
                     case SocketAsyncOperation.ReceiveFrom:
                     case SocketAsyncOperation.ReceiveMessageFrom:
+                        ProcessReceive(e);
                         Receive();
                         break;
 
                     case SocketAsyncOperation.SendTo:
+                        ProcessSend(e);
                         Send();
                         break;
                 }
