@@ -16,7 +16,8 @@ namespace Haukcode.sACN
     {
         private const int ReceiveBufferSize = 2048;
 
-        private readonly Socket socket;
+        private readonly Socket listenSocket;
+        private readonly Socket sendSocket;
         private readonly ISubject<Exception> errorSubject;
         private readonly ISubject<ReceiveDataRaw> receiveRawSubject;
         private readonly ISubject<ReceiveDataPacket> packetSubject;
@@ -46,7 +47,8 @@ namespace Haukcode.sACN
             this.receiveRawSubject = new Subject<ReceiveDataRaw>();
             this.packetSubject = new Subject<ReceiveDataPacket>();
 
-            this.socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            this.sendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            this.listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
             this.sendEventArgs = new SocketAsyncEventArgs();
             this.sendEventArgs.Completed += new EventHandler<SocketAsyncEventArgs>(Socket_Completed);
@@ -67,23 +69,30 @@ namespace Haukcode.sACN
 
                 byte[] optionInValue = { Convert.ToByte(false) };
                 byte[] optionOutValue = new byte[4];
-                this.socket.IOControl((int)SIO_UDP_CONNRESET, optionInValue, optionOutValue);
+                this.sendSocket.IOControl((int)SIO_UDP_CONNRESET, optionInValue, optionOutValue);
+                this.listenSocket.IOControl((int)SIO_UDP_CONNRESET, optionInValue, optionOutValue);
             }
             catch
             {
                 Debug.WriteLine("Unable to set SIO_UDP_CONNRESET, maybe not supported.");
             }
 
-            this.socket.ExclusiveAddressUse = false;
-            this.socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            this.socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.PacketInformation, true);
-            this.socket.Bind(new IPEndPoint(localAddress, port));
+            this.listenSocket.ExclusiveAddressUse = false;
+            this.sendSocket.ExclusiveAddressUse = false;
+            this.listenSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            this.sendSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+
+            // Not currently used
+            //this.socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.PacketInformation, true);
+
+            this.sendSocket.Bind(new IPEndPoint(localAddress, port));
+            this.listenSocket.Bind(new IPEndPoint(IPAddress.Any, port));
 
             // Multicast socket settings
-            this.socket.MulticastLoopback = true;
+            this.sendSocket.MulticastLoopback = true;
 
             // Only join local LAN group
-            this.socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
+            this.sendSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
 
             this.receiveRawSubject.Buffer(1).Subscribe(items =>
             {
@@ -151,7 +160,7 @@ namespace Haukcode.sACN
 
                 receiveEventArgs.SetBuffer(this.buffer, 0, this.buffer.Length);
 
-                if (!this.socket.ReceiveMessageFromAsync(receiveEventArgs))
+                if (!this.listenSocket.ReceiveMessageFromAsync(receiveEventArgs))
                 {
                     Process(receiveEventArgs);
                 }
@@ -172,7 +181,7 @@ namespace Haukcode.sACN
 
                 this.socketCompletedEvent.Reset();
 
-                if (!this.socket.SendToAsync(this.sendEventArgs))
+                if (!this.sendSocket.SendToAsync(this.sendEventArgs))
                 {
                     Process(this.sendEventArgs);
                 }
@@ -213,7 +222,7 @@ namespace Haukcode.sACN
                             Data = receivedBytes
                         };
                         if (e.ReceiveMessageFromPacketInfo.Address != null)
-                            receiveData.Destination = new IPEndPoint(e.ReceiveMessageFromPacketInfo.Address, ((IPEndPoint)this.socket.LocalEndPoint).Port);
+                            receiveData.Destination = new IPEndPoint(e.ReceiveMessageFromPacketInfo.Address, ((IPEndPoint)this.sendSocket.LocalEndPoint).Port);
 
                         this.receiveRawSubject.OnNext(receiveData);
                     }
@@ -260,8 +269,8 @@ namespace Haukcode.sACN
                 throw new InvalidOperationException($"You have already joined the DMX Universe {universeId}");
 
             // Join group
-            var option = new MulticastOption(SACNCommon.GetMulticastAddress(universeId), ((IPEndPoint)this.socket.LocalEndPoint).Address);
-            this.socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            var option = new MulticastOption(SACNCommon.GetMulticastAddress(universeId), ((IPEndPoint)this.sendSocket.LocalEndPoint).Address);
+            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
 
             // Add to the list of universes we have joined
             this.dmxUniverses.Add(universeId);
@@ -273,8 +282,8 @@ namespace Haukcode.sACN
                 throw new InvalidOperationException($"You are trying to drop the DMX Universe {universeId} but you are not a member");
 
             // Drop group
-            var option = new MulticastOption(SACNCommon.GetMulticastAddress(universeId));
-            this.socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+            var option = new MulticastOption(SACNCommon.GetMulticastAddress(universeId), ((IPEndPoint)this.sendSocket.LocalEndPoint).Address);
+            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
 
             // Remove from the list of universes we have joined
             this.dmxUniverses.Remove(universeId);
@@ -411,13 +420,22 @@ namespace Haukcode.sACN
         {
             try
             {
-                this.socket.Shutdown(SocketShutdown.Both);
+                this.sendSocket.Shutdown(SocketShutdown.Both);
             }
             catch
             {
             }
 
-            this.socket.Dispose();
+            try
+            {
+                this.listenSocket.Shutdown(SocketShutdown.Both);
+            }
+            catch
+            {
+            }
+
+            this.sendSocket.Dispose();
+            this.listenSocket.Dispose();
             this.sendEventArgs.Dispose();
         }
     }
