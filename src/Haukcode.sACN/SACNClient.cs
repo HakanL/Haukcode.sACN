@@ -27,7 +27,6 @@ namespace Haukcode.sACN
         private readonly HashSet<ushort> dmxUniverses = new HashSet<ushort>();
         private readonly byte[] buffer = new byte[ReceiveBufferSize];
         private readonly Stopwatch clock = new Stopwatch();
-        private readonly SocketAsyncEventArgs receiveEventArgs;
         private readonly SocketAsyncEventArgs sendEventArgs;
         private readonly ManualResetEvent socketCompletedEvent = new ManualResetEvent(false);
 
@@ -48,14 +47,6 @@ namespace Haukcode.sACN
             this.packetSubject = new Subject<ReceiveDataPacket>();
 
             this.socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-
-            this.receiveEventArgs = new SocketAsyncEventArgs
-            {
-                RemoteEndPoint = new IPEndPoint(IPAddress.Any, 0)
-            };
-            this.receiveEventArgs.Completed += new EventHandler<SocketAsyncEventArgs>(Socket_Completed);
-
-            this.receiveEventArgs.SetBuffer(this.buffer, 0, this.buffer.Length);
 
             this.sendEventArgs = new SocketAsyncEventArgs();
             this.sendEventArgs.Completed += new EventHandler<SocketAsyncEventArgs>(Socket_Completed);
@@ -85,6 +76,7 @@ namespace Haukcode.sACN
 
             this.socket.ExclusiveAddressUse = false;
             this.socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+            this.socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.PacketInformation, true);
             this.socket.Bind(new IPEndPoint(localAddress, port));
 
             // Multicast socket settings
@@ -151,11 +143,17 @@ namespace Haukcode.sACN
         {
             while (true)
             {
-                this.receiveEventArgs.RemoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
-
-                if (!this.socket.ReceiveMessageFromAsync(this.receiveEventArgs))
+                var receiveEventArgs = new SocketAsyncEventArgs
                 {
-                    Process(this.receiveEventArgs);
+                    RemoteEndPoint = new IPEndPoint(IPAddress.Any, 0)
+                };
+                receiveEventArgs.Completed += new EventHandler<SocketAsyncEventArgs>(Socket_Completed);
+
+                receiveEventArgs.SetBuffer(this.buffer, 0, this.buffer.Length);
+
+                if (!this.socket.ReceiveMessageFromAsync(receiveEventArgs))
+                {
+                    Process(receiveEventArgs);
                 }
                 else
                     break;
@@ -192,35 +190,42 @@ namespace Haukcode.sACN
             // Capture the timestamp first so it's as accurate as possible
             double timestampMS = this.clock.Elapsed.TotalMilliseconds;
 
-            if (e.SocketError != SocketError.Success)
+            try
             {
-                this.errorSubject.OnNext(new SocketException((int)e.SocketError));
-
-                return;
-            }
-
-            if (e.LastOperation == SocketAsyncOperation.ReceiveMessageFrom || e.LastOperation == SocketAsyncOperation.ReceiveFrom)
-            {
-                try
+                if (e.SocketError != SocketError.Success)
                 {
-                    byte[] receivedBytes = new byte[e.BytesTransferred];
-                    Buffer.BlockCopy(e.Buffer, e.Offset, receivedBytes, 0, receivedBytes.Length);
+                    this.errorSubject.OnNext(new SocketException((int)e.SocketError));
 
-                    var receiveData = new ReceiveDataRaw
+                    return;
+                }
+
+                if (e.LastOperation == SocketAsyncOperation.ReceiveMessageFrom || e.LastOperation == SocketAsyncOperation.ReceiveFrom)
+                {
+                    try
                     {
-                        TimestampMS = timestampMS,
-                        Source = (IPEndPoint)e.RemoteEndPoint,
-                        Data = receivedBytes
-                    };
-                    if (e.ReceiveMessageFromPacketInfo.Address != null)
-                        receiveData.Destination = new IPEndPoint(e.ReceiveMessageFromPacketInfo.Address, ((IPEndPoint)this.socket.LocalEndPoint).Port);
+                        byte[] receivedBytes = new byte[e.BytesTransferred];
+                        Buffer.BlockCopy(e.Buffer, e.Offset, receivedBytes, 0, receivedBytes.Length);
 
-                    this.receiveRawSubject.OnNext(receiveData);
+                        var receiveData = new ReceiveDataRaw
+                        {
+                            TimestampMS = timestampMS,
+                            Source = (IPEndPoint)e.RemoteEndPoint,
+                            Data = receivedBytes
+                        };
+                        if (e.ReceiveMessageFromPacketInfo.Address != null)
+                            receiveData.Destination = new IPEndPoint(e.ReceiveMessageFromPacketInfo.Address, ((IPEndPoint)this.socket.LocalEndPoint).Port);
+
+                        this.receiveRawSubject.OnNext(receiveData);
+                    }
+                    catch (Exception ex)
+                    {
+                        this.errorSubject.OnNext(ex);
+                    }
                 }
-                catch (Exception ex)
-                {
-                    this.errorSubject.OnNext(ex);
-                }
+            }
+            finally
+            {
+                e.Dispose();
             }
         }
 
@@ -413,7 +418,6 @@ namespace Haukcode.sACN
             }
 
             this.socket.Dispose();
-            this.receiveEventArgs.Dispose();
             this.sendEventArgs.Dispose();
         }
     }
