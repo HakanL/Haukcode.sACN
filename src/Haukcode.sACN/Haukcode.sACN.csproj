@@ -25,7 +25,8 @@
 1.0.7 - Make it Linux-compatible
 1.0.8 - Allow unknown operational status on network adapter
 2.0.0 - Allow for sync packets, breaking change
-2.0.13 - Fix issue with ReceiveMessageFrom and reusing the socket events</PackageReleaseNotes>
+2.0.13 - Fix issue with ReceiveMessageFrom and reusing the socket events
+2.0.16 - Fix incorrect byte order of Acn Source Id</PackageReleaseNotes>
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <FileVersion>2.0.0.0</FileVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

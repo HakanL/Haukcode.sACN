@@ -44,6 +44,60 @@ namespace Haukcode.sACN.Model
             };
         }
 
+        private byte[] GuidToByteArray(Guid input)
+        {
+            var bytes = input.ToByteArray();
+
+            return new byte[] {
+                bytes[3],
+                bytes[2],
+                bytes[1],
+                bytes[0],
+
+                bytes[5],
+                bytes[4],
+
+                bytes[7],
+                bytes[6],
+
+                bytes[8],
+                bytes[9],
+
+                bytes[10],
+                bytes[11],
+                bytes[12],
+                bytes[13],
+                bytes[14],
+                bytes[15]
+            };
+        }
+
+        private static Guid ByteArrayToGuid(byte[] input)
+        {
+            return new Guid(new byte[] {
+                input[3],
+                input[2],
+                input[1],
+                input[0],
+
+                input[5],
+                input[4],
+
+                input[7],
+                input[6],
+
+                input[8],
+                input[9],
+
+                input[10],
+                input[11],
+                input[12],
+                input[13],
+                input[14],
+                input[15]
+            });
+        }
+
         public byte[] ToArray()
         {
             using (var stream = new MemoryStream(Length))
@@ -55,7 +109,7 @@ namespace Haukcode.sACN.Model
                 ushort flagsAndRootLength = (ushort)(SACNPacket.FLAGS | (ushort)(Length - 16));
                 buffer.Write(flagsAndRootLength);
                 buffer.Write(FramingLayer.RootVector);
-                buffer.Write(UUID.ToByteArray());
+                buffer.Write(GuidToByteArray(UUID));
 
                 buffer.Write(FramingLayer.ToArray());
 
@@ -84,7 +138,7 @@ namespace Haukcode.sACN.Model
 
             ushort length = (ushort)(flagsAndRootLength & SACNPacket.LAST_TWELVE_BITS_MASK);
             int vector = buffer.ReadInt32();
-            Guid cid = new Guid(buffer.ReadBytes(16));
+            Guid cid = ByteArrayToGuid(buffer.ReadBytes(16));
 
             switch (vector)
             {
