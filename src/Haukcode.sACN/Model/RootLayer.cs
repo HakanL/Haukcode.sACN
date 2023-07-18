@@ -44,77 +44,19 @@ namespace Haukcode.sACN.Model
             };
         }
 
-        private byte[] GuidToByteArray(Guid input)
+        public int WriteToBuffer(Memory<byte> buffer)
         {
-            var bytes = input.ToByteArray();
+            var writer = new BigEndianBinaryWriter(buffer);
 
-            return new byte[] {
-                bytes[3],
-                bytes[2],
-                bytes[1],
-                bytes[0],
+            writer.WriteShort(PREAMBLE_LENGTH);
+            writer.WriteShort(POSTAMBLE_LENGTH);
+            writer.WriteBytes(PACKET_IDENTIFIER);
+            ushort flagsAndRootLength = (ushort)(SACNPacket.FLAGS | (ushort)(Length - 16));
+            writer.WriteUShort(flagsAndRootLength);
+            writer.WriteInt32(FramingLayer.RootVector);
+            writer.WriteGuid(UUID);
 
-                bytes[5],
-                bytes[4],
-
-                bytes[7],
-                bytes[6],
-
-                bytes[8],
-                bytes[9],
-
-                bytes[10],
-                bytes[11],
-                bytes[12],
-                bytes[13],
-                bytes[14],
-                bytes[15]
-            };
-        }
-
-        private static Guid ByteArrayToGuid(byte[] input)
-        {
-            return new Guid(new byte[] {
-                input[3],
-                input[2],
-                input[1],
-                input[0],
-
-                input[5],
-                input[4],
-
-                input[7],
-                input[6],
-
-                input[8],
-                input[9],
-
-                input[10],
-                input[11],
-                input[12],
-                input[13],
-                input[14],
-                input[15]
-            });
-        }
-
-        public byte[] ToArray()
-        {
-            using (var stream = new MemoryStream(Length))
-            using (var buffer = new BigEndianBinaryWriter(stream))
-            {
-                buffer.Write(PREAMBLE_LENGTH);
-                buffer.Write(POSTAMBLE_LENGTH);
-                buffer.Write(PACKET_IDENTIFIER);
-                ushort flagsAndRootLength = (ushort)(SACNPacket.FLAGS | (ushort)(Length - 16));
-                buffer.Write(flagsAndRootLength);
-                buffer.Write(FramingLayer.RootVector);
-                buffer.Write(GuidToByteArray(UUID));
-
-                buffer.Write(FramingLayer.ToArray());
-
-                return stream.ToArray();
-            }
+            return writer.WrittenBytes + FramingLayer.WriteToBuffer(writer.Memory);
         }
 
         internal static RootLayer Parse(BigEndianBinaryReader buffer)
@@ -127,8 +69,7 @@ namespace Haukcode.sACN.Model
             if (postambleLength != POSTAMBLE_LENGTH)
                 throw new InvalidDataException("postambleLength != POSTAMBLE_LENGTH");
 
-            byte[] packetIdentifier = buffer.ReadBytes(12);
-            if (!packetIdentifier.SequenceEqual(PACKET_IDENTIFIER))
+            if (!buffer.VerifyBytes(PACKET_IDENTIFIER))
                 throw new InvalidDataException("packetIdentifier != PACKET_IDENTIFIER");
 
             ushort flagsAndRootLength = (ushort)buffer.ReadInt16();
@@ -138,7 +79,7 @@ namespace Haukcode.sACN.Model
 
             ushort length = (ushort)(flagsAndRootLength & SACNPacket.LAST_TWELVE_BITS_MASK);
             int vector = buffer.ReadInt32();
-            Guid cid = ByteArrayToGuid(buffer.ReadBytes(16));
+            Guid cid = buffer.ReadGuid();
 
             switch (vector)
             {

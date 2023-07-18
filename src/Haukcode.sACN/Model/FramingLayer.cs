@@ -22,6 +22,6 @@ namespace Haukcode.sACN.Model
         {
         }
 
-        public abstract byte[] ToArray();
+        public abstract int WriteToBuffer(Memory<byte> buffer);
     }
 }

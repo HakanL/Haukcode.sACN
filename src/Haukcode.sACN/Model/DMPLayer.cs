@@ -20,26 +20,25 @@ namespace Haukcode.sACN.Model
         public DMPLayer(byte[] data, byte startCode = 0x00)
         {
             Data = data;
+            StartCode = startCode;
         }
 
-        public byte[] ToArray()
+        public int WriteToBuffer(Memory<byte> buffer)
         {
-            using (var stream = new MemoryStream(Length))
-            using (var buffer = new BigEndianBinaryWriter(stream))
-            {
-                ushort flagsAndDMPLength = (ushort)(SACNDataPacket.FLAGS | (ushort)Length);
+            var writer = new BigEndianBinaryWriter(buffer);
 
-                buffer.Write(flagsAndDMPLength);
-                buffer.Write(DMP_VECTOR);
-                buffer.Write(ADDRESS_TYPE_AND_DATA_TYPE);
-                buffer.Write(FIRST_PROPERTY_ADDRESS);
-                buffer.Write(ADDRESS_INCREMENT);
-                buffer.Write((short)(Data.Length + 1));
-                buffer.Write(StartCode);
-                buffer.Write(Data);
+            ushort flagsAndDMPLength = (ushort)(SACNDataPacket.FLAGS | (ushort)Length);
 
-                return stream.ToArray();
-            }
+            writer.WriteUShort(flagsAndDMPLength);
+            writer.WriteByte(DMP_VECTOR);
+            writer.WriteByte(ADDRESS_TYPE_AND_DATA_TYPE);
+            writer.WriteShort(FIRST_PROPERTY_ADDRESS);
+            writer.WriteShort(ADDRESS_INCREMENT);
+            writer.WriteShort((short)(Data.Length + 1));
+            writer.WriteByte(StartCode);
+            writer.WriteBytes(Data);
+
+            return writer.WrittenBytes;
         }
 
         internal static DMPLayer Parse(BigEndianBinaryReader buffer)

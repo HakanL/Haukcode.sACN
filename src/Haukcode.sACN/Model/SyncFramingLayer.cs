@@ -26,20 +26,18 @@ namespace Haukcode.sACN.Model
         {
         }
 
-        public override byte[] ToArray()
+        public override int WriteToBuffer(Memory<byte> buffer)
         {
-            using (var stream = new MemoryStream(Length))
-            using (var buffer = new BigEndianBinaryWriter(stream))
-            {
-                ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
-                buffer.Write(flagsAndFramingLength);
-                buffer.Write(VECTOR_E131_EXTENDED_SYNCHRONIZATION);
-                buffer.Write(SequenceId);
-                buffer.Write(SyncAddress);
-                buffer.Write((ushort)0);
+            var writer = new BigEndianBinaryWriter(buffer);
 
-                return stream.ToArray();
-            }
+            ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
+            writer.WriteUShort(flagsAndFramingLength);
+            writer.WriteInt32(VECTOR_E131_EXTENDED_SYNCHRONIZATION);
+            writer.WriteByte(SequenceId);
+            writer.WriteUShort(SyncAddress);
+            writer.WriteUShort((ushort)0);
+
+            return writer.WrittenBytes;
         }
 
         internal static SyncFramingLayer Parse(BigEndianBinaryReader buffer)

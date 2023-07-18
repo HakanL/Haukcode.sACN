@@ -43,39 +43,33 @@ namespace Haukcode.sACN.Model
         {
         }
 
-        public override byte[] ToArray()
+        public override int WriteToBuffer(Memory<byte> buffer)
         {
-            using (var stream = new MemoryStream(Length))
-            using (var buffer = new BigEndianBinaryWriter(stream))
-            {
-                ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
-                buffer.Write(flagsAndFramingLength);
-                buffer.Write(VECTOR_E131_DATA_PACKET);
-                buffer.Write(Encoding.UTF8.GetBytes(SourceName));
-                buffer.Write(Enumerable.Repeat((byte)0, 64 - SourceName.Length).ToArray());
-                buffer.Write(Priority);
-                buffer.Write(SyncAddress);
-                buffer.Write(SequenceId);
-                buffer.Write(Options.ToByte());
-                buffer.Write(UniverseId);
+            var writer = new BigEndianBinaryWriter(buffer);
 
-                buffer.Write(DMPLayer.ToArray());
+            ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
+            writer.WriteUShort(flagsAndFramingLength);
+            writer.WriteInt32(VECTOR_E131_DATA_PACKET);
+            writer.WriteString(SourceName, 64);
+            writer.WriteByte(Priority);
+            writer.WriteUShort(SyncAddress);
+            writer.WriteByte(SequenceId);
+            writer.WriteByte(Options.ToByte());
+            writer.WriteUShort(UniverseId);
 
-                return stream.ToArray();
-            }
+            return writer.WrittenBytes + DMPLayer.WriteToBuffer(writer.Memory);
         }
 
         internal static DataFramingLayer Parse(BigEndianBinaryReader buffer)
         {
-            ushort flagsAndFramingLength = (ushort)buffer.ReadInt16();
+            ushort flagsAndFramingLength = buffer.ReadUInt16();
             ushort flags = (ushort)(flagsAndFramingLength & SACNPacket.FIRST_FOUR_BITS_MASK);
             Debug.Assert(flags == SACNPacket.FLAGS);
             ushort length = (ushort)(flagsAndFramingLength & SACNPacket.LAST_TWELVE_BITS_MASK);
 
             int vector = buffer.ReadInt32();
             Debug.Assert(vector == VECTOR_E131_DATA_PACKET);
-            byte[] sourceNameBytes = buffer.ReadBytes(64);
-            string sourceName = new string(Encoding.UTF8.GetChars(sourceNameBytes)).TrimEnd('\0');
+            string sourceName = buffer.ReadString(64);
             byte priority = buffer.ReadByte();
             ushort syncAddress = buffer.ReadUInt16();
             byte sequenceID = buffer.ReadByte();
