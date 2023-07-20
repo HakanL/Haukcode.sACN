@@ -18,6 +18,8 @@ namespace Haukcode.sACN.Model
 
         public byte SequenceId { get { return FramingLayer.SequenceId; } set { FramingLayer.SequenceId = value; } }
 
+        public int Length => RootLayer.Length;
+
         public SACNPacket(RootLayer rootLayer)
         {
             RootLayer = rootLayer;
