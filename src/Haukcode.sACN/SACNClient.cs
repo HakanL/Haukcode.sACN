@@ -69,6 +69,7 @@ namespace Haukcode.sACN
         private readonly MemoryPool<byte> memoryPool = MemoryPool<byte>.Shared;
         private int droppedPackets;
         private int slowSends;
+        private readonly HashSet<(IPAddress Destination, ushort UniverseId)> usedDestinations = new();
 
         public SACNClient(Guid senderId, string senderName, IPAddress localAddress, int port = 5568)
         {
@@ -195,12 +196,14 @@ namespace Haukcode.sACN
                 {
                     DroppedPackets = this.droppedPackets,
                     QueueLength = this.sendQueue.Count,
-                    SlowSends = this.slowSends
+                    SlowSends = this.slowSends,
+                    DestinationCount = this.usedDestinations.Count
                 };
 
                 // Reset
                 this.droppedPackets = 0;
                 this.slowSends = 0;
+                this.usedDestinations.Clear();
 
                 return sendStatistics;
             }
@@ -264,8 +267,11 @@ namespace Haukcode.sACN
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception in Receiver handler: {ex.Message}");
-                    this.errorSubject.OnNext(ex);
+                    if (!(ex is OperationCanceledException))
+                    {
+                        Console.WriteLine($"Exception in Receiver handler: {ex.Message}");
+                        this.errorSubject.OnNext(ex);
+                    }
                 }
             }
         }
@@ -300,8 +306,11 @@ namespace Haukcode.sACN
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Exception in Sender handler: {ex.Message}");
-                    this.errorSubject.OnNext(ex);
+                    if (!(ex is OperationCanceledException))
+                    {
+                        Console.WriteLine($"Exception in Sender handler: {ex.Message}");
+                        this.errorSubject.OnNext(ex);
+                    }
                 }
             }
         }
@@ -455,6 +464,7 @@ namespace Haukcode.sACN
                 Destination = ipEndPoint
             };
 
+            this.usedDestinations.Add((destination, universeId));
             this.sendQueue.Add(newSendData);
         }
 
@@ -476,6 +486,7 @@ namespace Haukcode.sACN
                 DataLength = packetLength
             };
 
+            this.usedDestinations.Add((null, universeId));
             this.sendQueue.Add(newSendData);
 
             //var socketData = GetSendSocket(universeId);

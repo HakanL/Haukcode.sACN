@@ -12,6 +12,8 @@ namespace Haukcode.sACN.Model
 
         public int QueueLength { get; set; }
 
+        public int DestinationCount { get; set; }
+
         public int SlowSends { get; set; }
     }
 }
