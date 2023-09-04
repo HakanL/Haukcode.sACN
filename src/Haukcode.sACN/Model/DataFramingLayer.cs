@@ -28,7 +28,7 @@ namespace Haukcode.sACN.Model
 
         public override int RootVector => RootLayer.VECTOR_ROOT_E131_DATA;
 
-        public DataFramingLayer(string sourceName, ushort universeId, byte sequenceId, byte[] data, byte priority, ushort syncAddress = 0, byte startCode = 0)
+        public DataFramingLayer(string sourceName, ushort universeId, byte sequenceId, ReadOnlyMemory<byte> data, byte priority, ushort syncAddress = 0, byte startCode = 0)
             : base(sequenceId)
         {
             SourceName = sourceName;

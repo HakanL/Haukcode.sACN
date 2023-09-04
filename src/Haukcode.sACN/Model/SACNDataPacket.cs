@@ -9,11 +9,11 @@ namespace Haukcode.sACN.Model
 
         public string SourceName { get { return DataFramingLayer.SourceName; } set { DataFramingLayer.SourceName = value; } }
 
-        public byte[] DMXData { get { return DataFramingLayer.DMPLayer.Data; } }
+        public byte[] DMXData => DataFramingLayer.DMPLayer.Data.ToArray();
 
         public ushort UniverseId { get { return DataFramingLayer.UniverseId; } set { DataFramingLayer.UniverseId = value; } }
 
-        public SACNDataPacket(ushort universeId, string sourceName, Guid uuid, byte sequenceId, byte[] data, byte priority, ushort syncAddress = 0, byte startCode = 0)
+        public SACNDataPacket(ushort universeId, string sourceName, Guid uuid, byte sequenceId, ReadOnlyMemory<byte> data, byte priority, ushort syncAddress = 0, byte startCode = 0)
             : base(RootLayer.CreateRootLayerData(uuid, sourceName, universeId, sequenceId, data, priority, syncAddress, startCode))
         {
         }

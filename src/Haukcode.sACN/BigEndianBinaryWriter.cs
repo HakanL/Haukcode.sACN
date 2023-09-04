@@ -54,7 +54,14 @@ namespace Haukcode.sACN
 
         public void WriteBytes(byte[] bytes)
         {
-            bytes.AsSpan().CopyTo(this.buffer.Slice(this.writePosition).Span);
+            bytes.CopyTo(this.buffer[this.writePosition..].Span);
+
+            this.writePosition += bytes.Length;
+        }
+
+        public void WriteBytes(ReadOnlyMemory<byte> bytes)
+        {
+            bytes.Span.CopyTo(this.buffer[this.writePosition..].Span);
 
             this.writePosition += bytes.Length;
         }

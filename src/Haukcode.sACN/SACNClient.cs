@@ -370,7 +370,7 @@ namespace Haukcode.sACN
         /// <param name="priority">Priority (default 100)</param>
         /// <param name="syncAddress">Sync universe id</param>
         /// <param name="startCode">Start code (default 0)</param>
-        public void SendMulticast(ushort universeId, byte[] data, byte priority = 100, ushort syncAddress = 0, byte startCode = 0)
+        public void SendMulticast(ushort universeId, ReadOnlyMemory<byte> data, byte priority = 100, ushort syncAddress = 0, byte startCode = 0)
         {
             byte sequenceId = GetNewSequenceId(universeId);
 
@@ -387,7 +387,7 @@ namespace Haukcode.sACN
         /// <param name="data">Up to 512 bytes of DMX data</param>
         /// <param name="syncAddress">Sync universe id</param>
         /// <param name="startCode">Start code (default 0)</param>
-        public void SendUnicast(IPAddress address, ushort universeId, byte[] data, byte priority = 100, ushort syncAddress = 0, byte startCode = 0)
+        public void SendUnicast(IPAddress address, ushort universeId, ReadOnlyMemory<byte> data, byte priority = 100, ushort syncAddress = 0, byte startCode = 0)
         {
             byte sequenceId = GetNewSequenceId(universeId);
 

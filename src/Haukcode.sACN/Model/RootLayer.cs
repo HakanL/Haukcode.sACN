@@ -26,7 +26,7 @@ namespace Haukcode.sACN.Model
         {
         }
 
-        public static RootLayer CreateRootLayerData(Guid uuid, string sourceName, ushort universeID, byte sequenceID, byte[] data, byte priority, ushort syncAddress, byte startCode = 0)
+        public static RootLayer CreateRootLayerData(Guid uuid, string sourceName, ushort universeID, byte sequenceID, ReadOnlyMemory<byte> data, byte priority, ushort syncAddress, byte startCode = 0)
         {
             return new RootLayer
             {

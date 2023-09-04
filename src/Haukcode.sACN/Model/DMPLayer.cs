@@ -15,9 +15,9 @@ namespace Haukcode.sACN.Model
 
         public short Length { get { return (short)(11 + Data.Length); } }
 
-        public byte[] Data { get; set; }
+        public ReadOnlyMemory<byte> Data { get; set; }
 
-        public DMPLayer(byte[] data, byte startCode = 0x00)
+        public DMPLayer(ReadOnlyMemory<byte> data, byte startCode = 0x00)
         {
             Data = data;
             StartCode = startCode;
