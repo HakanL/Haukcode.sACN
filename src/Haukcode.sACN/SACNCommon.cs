@@ -120,22 +120,30 @@ namespace Haukcode.sACN
         /// <summary>
         /// Find first matching local IPAddress, first ethernet, then WiFi
         /// </summary>
-        /// <returns>Local IPAddress</returns>
-        public static (IPAddress IPAddress, IPAddress NetMask) GetFirstBindAddress()
+        /// <returns>Local IPAddress, netmask, mac</returns>
+        public static (IPAddress IPAddress, IPAddress NetMask, byte[] MacAddress) GetFirstBindAddress()
         {
             var adapters = GetCommonAdapters();
 
             // Try Ethernet first
             var firstEthernetAdapter = adapters.FirstOrDefault(x => x.Type == NetworkInterfaceType.Ethernet);
             if (firstEthernetAdapter != null)
-                return firstEthernetAdapter.AllIpv4Addresses.First();
+            {
+                var firstIpv4 = firstEthernetAdapter.AllIpv4Addresses.First();
+
+                return (firstIpv4.IP, firstIpv4.NetMask, firstEthernetAdapter.PhysicalAddress);
+            }
 
             // Then Wifi
             var firstWifiAdapter = adapters.FirstOrDefault(x => x.Type == NetworkInterfaceType.Wireless80211);
             if (firstWifiAdapter != null)
-                return firstWifiAdapter.AllIpv4Addresses.First();
+            {
+                var firstIpv4 = firstWifiAdapter.AllIpv4Addresses.First();
 
-            return (null, null);
+                return (firstIpv4.IP, firstIpv4.NetMask, firstWifiAdapter.PhysicalAddress);
+            }
+
+            return (null, null, null);
         }
     }
 }

@@ -140,6 +140,8 @@ namespace Haukcode.sACN
             this.sendTask = Task.Run(Sender);
         }
 
+        public bool IsOperational => !this.shutdownCTS.IsCancellationRequested;
+
         private void ConfigureSendSocket(Socket socket)
         {
             socket.SendBufferSize = 1400;
@@ -269,8 +271,14 @@ namespace Haukcode.sACN
                 {
                     if (!(ex is OperationCanceledException))
                     {
-                        Console.WriteLine($"Exception in Receiver handler: {ex.Message}");
                         this.errorSubject.OnNext(ex);
+                    }
+
+                    if (ex is System.Net.Sockets.SocketException)
+                    {
+                        // Network unreachable
+                        this.shutdownCTS.Cancel();
+                        break;
                     }
                 }
             }
@@ -280,10 +288,10 @@ namespace Haukcode.sACN
         {
             while (!this.shutdownCTS.IsCancellationRequested)
             {
+                var sendData = this.sendQueue.Take(this.shutdownCTS.Token);
+
                 try
                 {
-                    var sendData = this.sendQueue.Take(this.shutdownCTS.Token);
-
                     if (sendData.AgeMS > 100)
                     {
                         // Old, discard
@@ -298,19 +306,28 @@ namespace Haukcode.sACN
                     await socketData.Socket.SendToAsync(sendData.Data.Memory[..sendData.DataLength], SocketFlags.None, sendData.Destination ?? socketData.Destination);
                     watch.Stop();
 
-                    if (watch.ElapsedMilliseconds > 5)
+                    if (watch.ElapsedMilliseconds > 20)
                         this.slowSends++;
-
-                    // Return to pool
-                    sendData.Data.Dispose();
                 }
                 catch (Exception ex)
                 {
-                    if (!(ex is OperationCanceledException))
+                    if (ex is OperationCanceledException)
+                        continue;
+
+                    //Console.WriteLine($"Exception in Sender handler: {ex.Message}");
+                    this.errorSubject.OnNext(ex);
+
+                    if (ex is System.Net.Sockets.SocketException)
                     {
-                        Console.WriteLine($"Exception in Sender handler: {ex.Message}");
-                        this.errorSubject.OnNext(ex);
+                        // Network unreachable
+                        this.shutdownCTS.Cancel();
+                        break;
                     }
+                }
+                finally
+                {
+                    // Return to pool
+                    sendData.Data.Dispose();
                 }
             }
         }
@@ -465,7 +482,9 @@ namespace Haukcode.sACN
             };
 
             this.usedDestinations.Add((destination, universeId));
-            this.sendQueue.Add(newSendData);
+
+            if (IsOperational)
+                this.sendQueue.Add(newSendData);
         }
 
         /// <summary>
@@ -487,7 +506,13 @@ namespace Haukcode.sACN
             };
 
             this.usedDestinations.Add((null, universeId));
-            this.sendQueue.Add(newSendData);
+            if (IsOperational)
+                this.sendQueue.Add(newSendData);
+            else
+            {
+                // Clear queue
+                while (this.sendQueue.TryTake(out _));
+            }
 
             //var socketData = GetSendSocket(universeId);
             //try
@@ -561,10 +586,12 @@ namespace Haukcode.sACN
             {
             }
 
-            this.receiveTask?.Wait();
+            if (this.receiveTask?.IsCanceled == false)
+                this.receiveTask?.Wait();
             this.receiveTask?.Dispose();
 
-            this.sendTask?.Wait();
+            if (this.sendTask?.IsCanceled == false)
+                this.sendTask?.Wait();
             this.sendTask?.Dispose();
 
             this.listenSocket.Close();
