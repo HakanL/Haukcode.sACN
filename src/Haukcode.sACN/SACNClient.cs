@@ -23,7 +23,6 @@ namespace Haukcode.sACN
             public IPEndPoint Destination;
 
             public Memory<byte> SendBufferMem;
-
         }
 
         public class SendData
@@ -598,14 +597,14 @@ namespace Haukcode.sACN
         {
             lock (this.lockObject)
             {
-                if (!this.outputDataPerDestination.TryGetValue((null, universeId), out var outputData))
+                if (!this.outputDataPerDestination.TryGetValue((destination, universeId), out var outputData))
                 {
                     outputData = new OutputData
                     {
                         SendData = this.memoryPool.Rent(512)
                     };
 
-                    this.outputDataPerDestination.Add((null, universeId), outputData);
+                    this.outputDataPerDestination.Add((destination, universeId), outputData);
                 }
 
                 outputData.LastSent.Restart();
