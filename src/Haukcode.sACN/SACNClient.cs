@@ -187,8 +187,6 @@ namespace Haukcode.sACN
 
         public string SenderName { get; }
 
-        public bool OptimizeSend { get; set; }
-
         public IObservable<Exception> OnError => this.errorSubject.AsObservable();
 
         public SendStatistics SendStatistics
