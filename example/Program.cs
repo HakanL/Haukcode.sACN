@@ -28,7 +28,7 @@ namespace Haukcode.sACN.ConsoleExample
             var sendClient = new SACNClient(
                 senderId: acnSourceId,
                 senderName: acnSourceName,
-                localAddress: SACNCommon.GetFirstBindAddress().IPAddress);
+                localAddress: Haukcode.Network.Helper.GetFirstBindAddress().IPAddress);
 
             recvClient.OnError.Subscribe(e =>
             {

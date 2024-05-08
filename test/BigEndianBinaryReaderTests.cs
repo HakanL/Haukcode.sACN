@@ -13,7 +13,7 @@ namespace Haukcode.sACN.Test
         public void ReadUInt16(ushort expected, byte first, byte second)
         {
             MemoryStream stream = new MemoryStream(new byte[] { first, second });
-            BigEndianBinaryReader reader = new BigEndianBinaryReader(stream);
+            BigEndianBinaryReader reader = new BigEndianBinaryReader(new ReadOnlyMemory<byte>(stream.GetBuffer()));
             ushort actual = reader.ReadUInt16();
 
             Assert.Equal(expected, actual);
@@ -24,7 +24,7 @@ namespace Haukcode.sACN.Test
         public void ReadInt16_Positive(short expected, byte first, byte second)
         {
             MemoryStream stream = new MemoryStream(new byte[] { first, second });
-            BigEndianBinaryReader reader = new BigEndianBinaryReader(stream);
+            BigEndianBinaryReader reader = new BigEndianBinaryReader(new ReadOnlyMemory<byte>(stream.GetBuffer()));
             short actual = reader.ReadInt16();
 
             Assert.Equal(expected, actual);
@@ -35,7 +35,7 @@ namespace Haukcode.sACN.Test
         public void ReadInt16_Negative(short expected, byte first, byte second)
         {
             MemoryStream stream = new MemoryStream(new byte[] { first, second });
-            BigEndianBinaryReader reader = new BigEndianBinaryReader(stream);
+            BigEndianBinaryReader reader = new BigEndianBinaryReader(new ReadOnlyMemory<byte>(stream.GetBuffer()));
             short actual = reader.ReadInt16();
 
             Assert.Equal(expected, actual);
@@ -46,7 +46,7 @@ namespace Haukcode.sACN.Test
         public void ReadInt32_Positive(int expected, byte first, byte second, byte third, byte fourth)
         {
             MemoryStream stream = new MemoryStream(new byte[] { first, second, third, fourth });
-            BigEndianBinaryReader reader = new BigEndianBinaryReader(stream);
+            BigEndianBinaryReader reader = new BigEndianBinaryReader(new ReadOnlyMemory<byte>(stream.GetBuffer()));
             int actual = reader.ReadInt32();
 
             Assert.Equal(expected, actual);
@@ -57,7 +57,7 @@ namespace Haukcode.sACN.Test
         public void ReadInt32_Negative(int expected, byte first, byte second, byte third, byte fourth)
         {
             MemoryStream stream = new MemoryStream(new byte[] { first, second, third, fourth });
-            BigEndianBinaryReader reader = new BigEndianBinaryReader(stream);
+            BigEndianBinaryReader reader = new BigEndianBinaryReader(new ReadOnlyMemory<byte>(stream.GetBuffer()));
             int actual = reader.ReadInt32();
 
             Assert.Equal(expected, actual);
