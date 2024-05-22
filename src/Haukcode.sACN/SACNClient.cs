@@ -21,8 +21,6 @@ namespace Haukcode.sACN
             public Socket Socket;
 
             public IPEndPoint Destination;
-
-            public Memory<byte> SendBufferMem;
         }
 
         public class SendData
@@ -46,7 +44,7 @@ namespace Haukcode.sACN
         }
 
         private const int ReceiveBufferSize = 20480;
-        private const int SendBufferSize = 1024;
+        private const int SendBufferSize = 1400;
         private static readonly IPEndPoint _blankEndpoint = new(IPAddress.Any, 0);
 
         private readonly Socket listenSocket;
@@ -89,7 +87,6 @@ namespace Haukcode.sACN
             this.errorSubject = new Subject<Exception>();
             this.packetSubject = new Subject<ReceiveDataPacket>();
 
-            //this.sendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             this.listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
             //this.sendSocket.SendBufferSize = 5 * 1024 * 1024;
@@ -111,7 +108,6 @@ namespace Haukcode.sACN
 
                 byte[] optionInValue = { Convert.ToByte(false) };
                 byte[] optionOutValue = new byte[4];
-                //this.sendSocket.IOControl((int)SIO_UDP_CONNRESET, optionInValue, optionOutValue);
                 this.listenSocket.IOControl((int)SIO_UDP_CONNRESET, optionInValue, optionOutValue);
             }
             catch
@@ -120,19 +116,11 @@ namespace Haukcode.sACN
             }
 
             this.listenSocket.ExclusiveAddressUse = false;
-            //this.sendSocket.ExclusiveAddressUse = false;
             this.listenSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            //this.sendSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
 
-            //this.sendSocket.Bind(new IPEndPoint(localAddress, port));
             this.listenSocket.Bind(new IPEndPoint(IPAddress.Any, port));
 
-            //// Multicast socket settings
-            //this.sendSocket.DontFragment = true;
-            //this.sendSocket.MulticastLoopback = true;
-
             // Only join local LAN group
-            //this.sendSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
             this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
 
             this.receiveTask = Task.Run(Receiver);
@@ -143,7 +131,7 @@ namespace Haukcode.sACN
 
         private void ConfigureSendSocket(Socket socket)
         {
-            socket.SendBufferSize = 1400;
+            socket.SendBufferSize = SendBufferSize;
 
             // Set the SIO_UDP_CONNRESET ioctl to true for this UDP socket. If this UDP socket
             //    ever sends a UDP packet to a remote destination that exists but there is
@@ -340,13 +328,10 @@ namespace Haukcode.sACN
                 var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
                 ConfigureSendSocket(socket);
 
-                var sendBuffer = GC.AllocateArray<byte>(length: SendBufferSize, pinned: true);
-
                 socketData = new SendSocketData
                 {
                     Socket = socket,
-                    Destination = new IPEndPoint(SACNCommon.GetMulticastAddress(universeId), Port),
-                    SendBufferMem = sendBuffer.AsMemory()
+                    Destination = new IPEndPoint(SACNCommon.GetMulticastAddress(universeId), Port)
                 };
                 this.universeSockets.TryAdd(universeId, socketData);
             }
@@ -523,16 +508,6 @@ namespace Haukcode.sACN
                 // Clear queue
                 while (this.sendQueue.TryTake(out _)) ;
             }
-
-            //var socketData = GetSendSocket(universeId);
-            //try
-            //{
-            //    await socketData.Socket.SendToAsync(socketData.SendBufferMem[..packetLength], SocketFlags.None, socketData.Destination);
-            //}
-            //catch (Exception ex)
-            //{
-            //    this.errorSubject.OnNext(ex);
-            //}
         }
 
         public void WarmUpSockets(IEnumerable<ushort> universeIds)

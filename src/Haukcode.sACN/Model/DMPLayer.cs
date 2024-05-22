@@ -29,16 +29,16 @@ namespace Haukcode.sACN.Model
 
             ushort flagsAndDMPLength = (ushort)(SACNDataPacket.FLAGS | (ushort)Length);
 
-            writer.WriteUShort(flagsAndDMPLength);
+            writer.WriteUInt16(flagsAndDMPLength);
             writer.WriteByte(DMP_VECTOR);
             writer.WriteByte(ADDRESS_TYPE_AND_DATA_TYPE);
-            writer.WriteShort(FIRST_PROPERTY_ADDRESS);
-            writer.WriteShort(ADDRESS_INCREMENT);
-            writer.WriteShort((short)(Data.Length + 1));
+            writer.WriteInt16(FIRST_PROPERTY_ADDRESS);
+            writer.WriteInt16(ADDRESS_INCREMENT);
+            writer.WriteInt16((short)(Data.Length + 1));
             writer.WriteByte(StartCode);
             writer.WriteBytes(Data);
 
-            return writer.WrittenBytes;
+            return writer.BytesWritten;
         }
 
         internal static DMPLayer Parse(BigEndianBinaryReader buffer)

@@ -48,15 +48,15 @@ namespace Haukcode.sACN.Model
         {
             var writer = new BigEndianBinaryWriter(buffer);
 
-            writer.WriteShort(PREAMBLE_LENGTH);
-            writer.WriteShort(POSTAMBLE_LENGTH);
+            writer.WriteInt16(PREAMBLE_LENGTH);
+            writer.WriteInt16(POSTAMBLE_LENGTH);
             writer.WriteBytes(PACKET_IDENTIFIER);
             ushort flagsAndRootLength = (ushort)(SACNPacket.FLAGS | (ushort)(Length - 16));
-            writer.WriteUShort(flagsAndRootLength);
+            writer.WriteUInt16(flagsAndRootLength);
             writer.WriteInt32(FramingLayer.RootVector);
             writer.WriteGuid(UUID);
 
-            return writer.WrittenBytes + FramingLayer.WriteToBuffer(writer.Memory);
+            return writer.BytesWritten + FramingLayer.WriteToBuffer(writer.Memory);
         }
 
         internal static RootLayer Parse(BigEndianBinaryReader buffer)

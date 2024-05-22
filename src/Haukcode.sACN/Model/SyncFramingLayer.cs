@@ -31,13 +31,13 @@ namespace Haukcode.sACN.Model
             var writer = new BigEndianBinaryWriter(buffer);
 
             ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
-            writer.WriteUShort(flagsAndFramingLength);
+            writer.WriteUInt16(flagsAndFramingLength);
             writer.WriteInt32(VECTOR_E131_EXTENDED_SYNCHRONIZATION);
             writer.WriteByte(SequenceId);
-            writer.WriteUShort(SyncAddress);
-            writer.WriteUShort((ushort)0);
+            writer.WriteUInt16(SyncAddress);
+            writer.WriteUInt16((ushort)0);
 
-            return writer.WrittenBytes;
+            return writer.BytesWritten;
         }
 
         internal static SyncFramingLayer Parse(BigEndianBinaryReader buffer)

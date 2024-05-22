@@ -48,16 +48,16 @@ namespace Haukcode.sACN.Model
             var writer = new BigEndianBinaryWriter(buffer);
 
             ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
-            writer.WriteUShort(flagsAndFramingLength);
+            writer.WriteUInt16(flagsAndFramingLength);
             writer.WriteInt32(VECTOR_E131_DATA_PACKET);
             writer.WriteString(SourceName, 64);
             writer.WriteByte(Priority);
-            writer.WriteUShort(SyncAddress);
+            writer.WriteUInt16(SyncAddress);
             writer.WriteByte(SequenceId);
             writer.WriteByte(Options.ToByte());
-            writer.WriteUShort(UniverseId);
+            writer.WriteUInt16(UniverseId);
 
-            return writer.WrittenBytes + DMPLayer.WriteToBuffer(writer.Memory);
+            return writer.BytesWritten + DMPLayer.WriteToBuffer(writer.Memory);
         }
 
         internal static DataFramingLayer Parse(BigEndianBinaryReader buffer)

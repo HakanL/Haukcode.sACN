@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Haukcode.sACN.Model
+namespace Haukcode.sACN
 {
     public class SendStatistics
     {
