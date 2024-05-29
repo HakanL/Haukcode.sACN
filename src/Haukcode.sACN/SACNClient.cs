@@ -275,10 +275,12 @@ namespace Haukcode.sACN
         {
             while (!this.shutdownCTS.IsCancellationRequested)
             {
-                var sendData = this.sendQueue.Take(this.shutdownCTS.Token);
+                SendData sendData = null;
 
                 try
                 {
+                    sendData = this.sendQueue.Take(this.shutdownCTS.Token);
+
                     if (sendData.AgeMS > 100)
                     {
                         // Old, discard
@@ -316,7 +318,7 @@ namespace Haukcode.sACN
                 finally
                 {
                     // Return to pool
-                    sendData.Data.Dispose();
+                    sendData?.Data?.Dispose();
                 }
             }
         }
