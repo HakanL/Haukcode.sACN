@@ -9,11 +9,9 @@ using System.Net.Sockets;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 using Haukcode.HighPerfComm;
 using Haukcode.sACN.Model;
-using HdrHistogram;
 
 namespace Haukcode.sACN
 {
@@ -21,9 +19,9 @@ namespace Haukcode.sACN
     {
         public class SendData : HighPerfComm.SendData
         {
-            public ushort UniverseId;
+            public ushort UniverseId { get; set; }
 
-            public IPEndPoint? Destination;
+            public IPEndPoint? Destination { get; set; }
         }
 
         private const int ReceiveBufferSize = 20480;
@@ -39,7 +37,6 @@ namespace Haukcode.sACN
         private readonly HashSet<ushort> dmxUniverses = [];
         private readonly Dictionary<IPAddress, IPEndPoint> endPointCache = [];
         private readonly IPEndPoint localEndPoint;
-        private readonly HashSet<(IPAddress? Destination, ushort UniverseId)> usedDestinations = [];
         private readonly Dictionary<ushort, IPEndPoint> universeMulticastEndpoints = [];
 
         public SACNClient(Guid senderId, string senderName, IPAddress localAddress, int port = 5568)
@@ -53,15 +50,12 @@ namespace Haukcode.sACN
 
             if (port <= 0)
                 throw new ArgumentException("Invalid port", nameof(port));
-            Port = port;
             this.localEndPoint = new IPEndPoint(localAddress, port);
 
             this.packetSubject = new Subject<ReceiveDataPacket>();
 
             this.listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-
-            //this.sendSocket.SendBufferSize = 5 * 1024 * 1024;
-            //this.listenSocket.ReceiveBufferSize = 5 * 1024 * 1024;
+            this.listenSocket.ReceiveBufferSize = ReceiveBufferSize;
 
             // Set the SIO_UDP_CONNRESET ioctl to true for this UDP socket. If this UDP socket
             //    ever sends a UDP packet to a remote destination that exists but there is
@@ -138,7 +132,7 @@ namespace Haukcode.sACN
             socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
         }
 
-        public int Port { get; }
+        public IPEndPoint LocalEndPoint => this.localEndPoint;
 
         public Guid SenderId { get; }
 
@@ -241,13 +235,12 @@ namespace Haukcode.sACN
                 {
                     if (!this.endPointCache.TryGetValue(destination, out var ipEndPoint))
                     {
-                        ipEndPoint = new IPEndPoint(destination, Port);
+                        ipEndPoint = new IPEndPoint(destination, this.localEndPoint.Port);
                         this.endPointCache.Add(destination, ipEndPoint);
                     }
 
                     newSendData.Destination = ipEndPoint;
                 }
-                this.usedDestinations.Add((destination, universeId));
 
                 newSendData.UniverseId = universeId;
 
@@ -323,7 +316,7 @@ namespace Haukcode.sACN
             {
                 if (!universeMulticastEndpoints.TryGetValue(sendData.UniverseId, out destination))
                 {
-                    destination = new IPEndPoint(SACNCommon.GetMulticastAddress(sendData.UniverseId), Port);
+                    destination = new IPEndPoint(SACNCommon.GetMulticastAddress(sendData.UniverseId), this.localEndPoint.Port);
                     universeMulticastEndpoints.Add(sendData.UniverseId, destination);
                 }
             }
@@ -353,7 +346,7 @@ namespace Haukcode.sACN
 
                 if (!this.endPointCache.TryGetValue(result.PacketInformation.Address, out var ipEndPoint))
                 {
-                    ipEndPoint = new IPEndPoint(result.PacketInformation.Address, Port);
+                    ipEndPoint = new IPEndPoint(result.PacketInformation.Address, this.localEndPoint.Port);
                     this.endPointCache.Add(result.PacketInformation.Address, ipEndPoint);
                 }
 
