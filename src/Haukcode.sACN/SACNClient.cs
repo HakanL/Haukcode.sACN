@@ -56,7 +56,6 @@ namespace Haukcode.sACN
             Port = port;
             this.localEndPoint = new IPEndPoint(localAddress, port);
 
-
             this.packetSubject = new Subject<ReceiveDataPacket>();
 
             this.listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
