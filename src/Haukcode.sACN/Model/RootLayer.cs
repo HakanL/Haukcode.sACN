@@ -16,7 +16,7 @@ namespace Haukcode.sACN.Model
         public const int VECTOR_ROOT_E131_DATA = 0x00000004;
         public const int VECTOR_ROOT_E131_EXTENDED = 0x00000008;
 
-        public FramingLayer FramingLayer { get; set; }
+        public FramingLayer FramingLayer { get; set; } = null!;
 
         public short Length { get { return (short)(38 + FramingLayer.Length); } }
 

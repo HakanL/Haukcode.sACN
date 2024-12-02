@@ -9,66 +9,41 @@ using System.Net.Sockets;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
+using Haukcode.HighPerfComm;
 using Haukcode.sACN.Model;
+using HdrHistogram;
 
 namespace Haukcode.sACN
 {
-    public class SACNClient : IDisposable
+    public class SACNClient : Client<SACNClient.SendData, SocketReceiveMessageFromResult>
     {
-        public class SendSocketData
-        {
-            public Socket Socket;
-
-            public IPEndPoint Destination;
-        }
-
-        public class SendData
+        public class SendData : HighPerfComm.SendData
         {
             public ushort UniverseId;
 
-            public IPEndPoint Destination;
-
-            public IMemoryOwner<byte> Data;
-
-            public int DataLength;
-
-            public Stopwatch Enqueued;
-
-            public double AgeMS => Enqueued.Elapsed.TotalMilliseconds;
-
-            public SendData()
-            {
-                Enqueued = Stopwatch.StartNew();
-            }
+            public IPEndPoint? Destination;
         }
 
         private const int ReceiveBufferSize = 20480;
-        private const int SendBufferSize = 1400;
+        private const int SendBufferSize = 680 * 100;
         private static readonly IPEndPoint _blankEndpoint = new(IPAddress.Any, 0);
 
         private readonly Socket listenSocket;
-        private readonly ISubject<Exception> errorSubject;
+        private readonly Socket sendSocket;
         private readonly ISubject<ReceiveDataPacket> packetSubject;
-        private readonly Dictionary<ushort, byte> sequenceIds = new();
-        private readonly Dictionary<ushort, byte> sequenceIdsSync = new();
+        private readonly Dictionary<ushort, byte> sequenceIds = [];
+        private readonly Dictionary<ushort, byte> sequenceIdsSync = [];
         private readonly object lockObject = new();
-        private readonly HashSet<ushort> dmxUniverses = new();
-        private readonly Memory<byte> receiveBufferMem;
-        private readonly Stopwatch clock = new();
-        private readonly Task receiveTask;
-        private readonly Task sendTask;
-        private readonly CancellationTokenSource shutdownCTS = new();
-        private readonly Dictionary<IPAddress, IPEndPoint> endPointCache = new();
-        private readonly ConcurrentDictionary<ushort, SendSocketData> universeSockets = new();
+        private readonly HashSet<ushort> dmxUniverses = [];
+        private readonly Dictionary<IPAddress, IPEndPoint> endPointCache = [];
         private readonly IPEndPoint localEndPoint;
-        private readonly BlockingCollection<SendData> sendQueue = new();
-        private readonly MemoryPool<byte> memoryPool = MemoryPool<byte>.Shared;
-        private int droppedPackets;
-        private int slowSends;
-        private readonly HashSet<(IPAddress Destination, ushort UniverseId)> usedDestinations = new();
+        private readonly HashSet<(IPAddress? Destination, ushort UniverseId)> usedDestinations = [];
+        private readonly Dictionary<ushort, IPEndPoint> universeMulticastEndpoints = [];
 
         public SACNClient(Guid senderId, string senderName, IPAddress localAddress, int port = 5568)
+            : base(() => new SendData(), ReceiveBufferSize)
         {
             if (senderId == Guid.Empty)
                 throw new ArgumentException("Invalid sender Id", nameof(senderId));
@@ -81,10 +56,7 @@ namespace Haukcode.sACN
             Port = port;
             this.localEndPoint = new IPEndPoint(localAddress, port);
 
-            var receiveBuffer = GC.AllocateArray<byte>(length: ReceiveBufferSize, pinned: true);
-            this.receiveBufferMem = receiveBuffer.AsMemory();
 
-            this.errorSubject = new Subject<Exception>();
             this.packetSubject = new Subject<ReceiveDataPacket>();
 
             this.listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
@@ -123,11 +95,9 @@ namespace Haukcode.sACN
             // Only join local LAN group
             this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
 
-            this.receiveTask = Task.Run(Receiver);
-            this.sendTask = Task.Run(Sender);
+            this.sendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            ConfigureSendSocket(this.sendSocket);
         }
-
-        public bool IsOperational => !this.shutdownCTS.IsCancellationRequested;
 
         private void ConfigureSendSocket(Socket socket)
         {
@@ -175,29 +145,6 @@ namespace Haukcode.sACN
 
         public string SenderName { get; }
 
-        public IObservable<Exception> OnError => this.errorSubject.AsObservable();
-
-        public SendStatistics SendStatistics
-        {
-            get
-            {
-                var sendStatistics = new SendStatistics
-                {
-                    DroppedPackets = this.droppedPackets,
-                    QueueLength = this.sendQueue.Count,
-                    SlowSends = this.slowSends,
-                    DestinationCount = this.usedDestinations.Count
-                };
-
-                // Reset
-                this.droppedPackets = 0;
-                this.slowSends = 0;
-                this.usedDestinations.Clear();
-
-                return sendStatistics;
-            }
-        }
-
         /// <summary>
         /// Observable that provides all parsed packets. This is buffered on its own thread so the processing can
         /// take any time necessary (memory consumption will go up though, there is no upper limit to amount of data buffered).
@@ -208,138 +155,6 @@ namespace Haukcode.sACN
         /// Gets a list of dmx universes this socket has joined to
         /// </summary>
         public IReadOnlyCollection<ushort> DMXUniverses => this.dmxUniverses.ToList();
-
-        public void StartReceive()
-        {
-            this.clock.Restart();
-        }
-
-        public double ReceiveClock => this.clock.Elapsed.TotalMilliseconds;
-
-        private async Task Receiver()
-        {
-            while (!this.shutdownCTS.IsCancellationRequested)
-            {
-                try
-                {
-                    var result = await this.listenSocket.ReceiveMessageFromAsync(this.receiveBufferMem, SocketFlags.None, _blankEndpoint, this.shutdownCTS.Token);
-
-                    // Capture the timestamp first so it's as accurate as possible
-                    double timestampMS = this.clock.Elapsed.TotalMilliseconds;
-
-                    if (result.ReceivedBytes > 0)
-                    {
-                        var readBuffer = this.receiveBufferMem[..result.ReceivedBytes];
-
-                        var packet = SACNPacket.Parse(readBuffer);
-
-                        if (packet != null)
-                        {
-                            var newPacket = new ReceiveDataPacket
-                            {
-                                TimestampMS = timestampMS,
-                                Source = (IPEndPoint)result.RemoteEndPoint,
-                                Packet = packet
-                            };
-
-                            if (!this.endPointCache.TryGetValue(result.PacketInformation.Address, out var ipEndPoint))
-                            {
-                                ipEndPoint = new IPEndPoint(result.PacketInformation.Address, Port);
-                                this.endPointCache.Add(result.PacketInformation.Address, ipEndPoint);
-                            }
-
-                            newPacket.Destination = ipEndPoint;
-
-                            this.packetSubject.OnNext(newPacket);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (ex is not OperationCanceledException)
-                    {
-                        this.errorSubject.OnNext(ex);
-                    }
-
-                    if (ex is System.Net.Sockets.SocketException)
-                    {
-                        // Network unreachable
-                        this.shutdownCTS.Cancel();
-                        break;
-                    }
-                }
-            }
-        }
-
-        private async Task Sender()
-        {
-            while (!this.shutdownCTS.IsCancellationRequested)
-            {
-                SendData sendData = null;
-
-                try
-                {
-                    sendData = this.sendQueue.Take(this.shutdownCTS.Token);
-
-                    if (sendData.AgeMS > 100)
-                    {
-                        // Old, discard
-                        this.droppedPackets++;
-                        //Console.WriteLine($"Age {sendData.Enqueued.Elapsed.TotalMilliseconds:N2}   queue length = {this.sendQueue.Count}   Dropped = {this.droppedPackets}");
-                        continue;
-                    }
-
-                    var socketData = GetSendSocket(sendData.UniverseId);
-
-                    var destination = sendData.Destination ?? socketData.Destination;
-
-                    var watch = Stopwatch.StartNew();
-                    await socketData.Socket.SendToAsync(sendData.Data.Memory[..sendData.DataLength], SocketFlags.None, destination);
-                    watch.Stop();
-
-                    if (watch.ElapsedMilliseconds > 20)
-                        this.slowSends++;
-                }
-                catch (Exception ex)
-                {
-                    if (ex is OperationCanceledException)
-                        continue;
-
-                    //Console.WriteLine($"Exception in Sender handler: {ex.Message}");
-                    this.errorSubject.OnNext(ex);
-
-                    if (ex is System.Net.Sockets.SocketException)
-                    {
-                        // Network unreachable
-                        this.shutdownCTS.Cancel();
-                        break;
-                    }
-                }
-                finally
-                {
-                    // Return to pool
-                    sendData?.Data?.Dispose();
-                }
-            }
-        }
-
-        private SendSocketData GetSendSocket(ushort universeId)
-        {
-            if (!this.universeSockets.TryGetValue(universeId, out var socketData))
-            {
-                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                ConfigureSendSocket(socket);
-
-                socketData = new SendSocketData
-                {
-                    Socket = socket,
-                    Destination = new IPEndPoint(SACNCommon.GetMulticastAddress(universeId), Port)
-                };
-                this.universeSockets.TryAdd(universeId, socketData);
-            }
-
-            return socketData;
-        }
 
         public void JoinDMXUniverse(ushort universeId)
         {
@@ -368,45 +183,35 @@ namespace Haukcode.sACN
         }
 
         /// <summary>
-        /// Multicast send data
+        /// Send data
         /// </summary>
-        /// <param name="universeId">The universe Id to multicast to</param>
-        /// <param name="data">Up to 512 bytes of DMX data</param>
-        /// <param name="priority">Priority (default 100)</param>
-        /// <param name="syncAddress">Sync universe id</param>
-        /// <param name="startCode">Start code (default 0)</param>
-        public void SendMulticast(ushort universeId, ReadOnlyMemory<byte> data, byte priority = 100, ushort syncAddress = 0, byte startCode = 0)
-        {
-            byte sequenceId = GetNewSequenceId(universeId);
-
-            var packet = new SACNDataPacket(universeId, SenderName, SenderId, sequenceId, data, priority, syncAddress, startCode);
-
-            SendPacket(universeId, packet);
-        }
-
-        /// <summary>
-        /// Unicast send data
-        /// </summary>
-        /// <param name="address">The address to unicast to</param>
+        /// <param name="address">The optional address to unicast to</param>
         /// <param name="universeId">The Universe ID</param>
-        /// <param name="data">Up to 512 bytes of DMX data</param>
+        /// <param name="dmxData">Up to 512 bytes of DMX data</param>
         /// <param name="syncAddress">Sync universe id</param>
         /// <param name="startCode">Start code (default 0)</param>
-        public void SendUnicast(IPAddress address, ushort universeId, ReadOnlyMemory<byte> data, byte priority = 100, ushort syncAddress = 0, byte startCode = 0)
+        public Task SendDmxData(IPAddress? address, ushort universeId, ReadOnlyMemory<byte> dmxData, byte priority = 100, ushort syncAddress = 0, byte startCode = 0, bool important = false)
         {
+            if (!IsOperational)
+                return Task.CompletedTask;
+
             byte sequenceId = GetNewSequenceId(universeId);
 
-            var packet = new SACNDataPacket(universeId, SenderName, SenderId, sequenceId, data, priority, syncAddress, startCode);
+            var packet = new SACNDataPacket(universeId, SenderName, SenderId, sequenceId, dmxData, priority, syncAddress, startCode);
 
-            SendPacket(universeId, address, packet);
+            return QueuePacket(universeId, address, packet, important);
         }
 
         /// <summary>
-        /// Multicast send sync
+        /// Send sync
         /// </summary>
+        /// <param name="address">The optional address to unicast to</param>
         /// <param name="syncAddress">Sync universe id</param>
-        public void SendMulticastSync(ushort syncAddress)
+        public Task SendSync(IPAddress? address, ushort syncAddress)
         {
+            if (!IsOperational)
+                return Task.CompletedTask;
+
             byte sequenceId = GetNewSequenceIdSync(syncAddress);
 
             var packet = new SACNPacket(new RootLayer
@@ -419,28 +224,7 @@ namespace Haukcode.sACN
                 }
             });
 
-            SendPacket(syncAddress, packet);
-        }
-
-        /// <summary>
-        /// Unicast send sync
-        /// </summary>
-        /// <param name="syncAddress">Sync universe id</param>
-        public void SendUnicastSync(IPAddress address, ushort syncAddress)
-        {
-            byte sequenceId = GetNewSequenceIdSync(syncAddress);
-
-            var packet = new SACNPacket(new RootLayer
-            {
-                UUID = SenderId,
-                FramingLayer = new SyncFramingLayer
-                {
-                    SequenceId = sequenceId,
-                    SyncAddress = syncAddress
-                }
-            });
-
-            SendPacket(syncAddress, address, packet);
+            return QueuePacket(syncAddress, address, packet, true);
         }
 
         /// <summary>
@@ -449,75 +233,31 @@ namespace Haukcode.sACN
         /// <param name="universeId">Universe Id</param>
         /// <param name="destination">Destination</param>
         /// <param name="packet">Packet</param>
-        public void SendPacket(ushort universeId, IPAddress destination, SACNPacket packet)
+        /// <param name="important">Important</param>
+        private async Task QueuePacket(ushort universeId, IPAddress? destination, SACNPacket packet, bool important)
         {
-            if (!this.endPointCache.TryGetValue(destination, out var ipEndPoint))
+            await base.QueuePacket(packet.Length, important, (newSendData, memory) =>
             {
-                ipEndPoint = new IPEndPoint(destination, Port);
-                this.endPointCache.Add(destination, ipEndPoint);
-            }
+                if (destination != null)
+                {
+                    if (!this.endPointCache.TryGetValue(destination, out var ipEndPoint))
+                    {
+                        ipEndPoint = new IPEndPoint(destination, Port);
+                        this.endPointCache.Add(destination, ipEndPoint);
+                    }
 
-            var memory = this.memoryPool.Rent(packet.Length);
+                    newSendData.Destination = ipEndPoint;
+                }
+                this.usedDestinations.Add((destination, universeId));
 
-            int packetLength = packet.WriteToBuffer(memory.Memory);
+                newSendData.UniverseId = universeId;
 
-            var newSendData = new SendData
-            {
-                Data = memory,
-                UniverseId = universeId,
-                DataLength = packetLength,
-                Destination = ipEndPoint
-            };
-
-            this.usedDestinations.Add((destination, universeId));
-
-            if (IsOperational)
-            {
-                this.sendQueue.Add(newSendData);
-            }
-            else
-            {
-                // Clear queue
-                while (this.sendQueue.TryTake(out _)) ;
-            }
-        }
-
-        /// <summary>
-        /// Send packet
-        /// </summary>
-        /// <param name="universeId">Universe Id</param>
-        /// <param name="packet">Packet</param>
-        public void SendPacket(ushort universeId, SACNPacket packet)
-        {
-            var memory = this.memoryPool.Rent(packet.Length);
-
-            int packetLength = packet.WriteToBuffer(memory.Memory);
-
-            var newSendData = new SendData
-            {
-                Data = memory,
-                UniverseId = universeId,
-                DataLength = packetLength
-            };
-
-            this.usedDestinations.Add((null, universeId));
-            if (IsOperational)
-            {
-                this.sendQueue.Add(newSendData);
-            }
-            else
-            {
-                // Clear queue
-                while (this.sendQueue.TryTake(out _)) ;
-            }
+                return packet.WriteToBuffer(memory);
+            });
         }
 
         public void WarmUpSockets(IEnumerable<ushort> universeIds)
         {
-            foreach (ushort universeId in universeIds)
-            {
-                GetSendSocket(universeId);
-            }
         }
 
         private byte GetNewSequenceId(ushort universeId)
@@ -548,41 +288,80 @@ namespace Haukcode.sACN
             }
         }
 
-        public void Dispose()
+        protected override void Dispose(bool disposing)
         {
-            this.shutdownCTS.Cancel();
+            base.Dispose(disposing);
 
-            foreach (var kvp in this.universeSockets)
+            if (disposing)
             {
                 try
                 {
-                    kvp.Value.Socket.Shutdown(SocketShutdown.Both);
-                    kvp.Value.Socket.Close();
-                    kvp.Value.Socket.Dispose();
+                    this.listenSocket.Shutdown(SocketShutdown.Both);
                 }
                 catch
                 {
                 }
-            }
+                this.listenSocket.Close();
+                this.listenSocket.Dispose();
 
-            try
+                try
+                {
+                    this.sendSocket.Shutdown(SocketShutdown.Both);
+                }
+                catch
+                {
+                }
+                this.sendSocket.Close();
+                this.sendSocket.Dispose();
+            }
+        }
+
+        protected override ValueTask<int> SendPacketAsync(SendData sendData, ReadOnlyMemory<byte> payload)
+        {
+            var destination = sendData.Destination;
+
+            if (destination == null)
             {
-                this.listenSocket.Shutdown(SocketShutdown.Both);
+                if (!universeMulticastEndpoints.TryGetValue(sendData.UniverseId, out destination))
+                {
+                    destination = new IPEndPoint(SACNCommon.GetMulticastAddress(sendData.UniverseId), Port);
+                    universeMulticastEndpoints.Add(sendData.UniverseId, destination);
+                }
             }
-            catch
+
+            return this.sendSocket.SendToAsync(payload, SocketFlags.None, destination);
+        }
+
+        protected async override ValueTask<(int ReceivedBytes, SocketReceiveMessageFromResult Result)> ReceiveData(Memory<byte> memory, CancellationToken cancelToken)
+        {
+            var result = await this.listenSocket.ReceiveMessageFromAsync(memory, SocketFlags.None, _blankEndpoint, cancelToken);
+
+            return (result.ReceivedBytes, result);
+        }
+
+        protected override void ParseReceiveData(ReadOnlyMemory<byte> memory, SocketReceiveMessageFromResult result, double timestampMS)
+        {
+            var packet = SACNPacket.Parse(memory);
+
+            if (packet != null)
             {
+                var newPacket = new ReceiveDataPacket
+                {
+                    TimestampMS = timestampMS,
+                    Source = (IPEndPoint)result.RemoteEndPoint,
+                    Packet = packet
+                };
+
+                if (!this.endPointCache.TryGetValue(result.PacketInformation.Address, out var ipEndPoint))
+                {
+                    ipEndPoint = new IPEndPoint(result.PacketInformation.Address, Port);
+                    this.endPointCache.Add(result.PacketInformation.Address, ipEndPoint);
+                }
+
+                newPacket.Destination = ipEndPoint;
+
+                this.packetSubject.OnNext(newPacket);
             }
-
-            if (this.receiveTask?.IsCanceled == false)
-                this.receiveTask?.Wait();
-            this.receiveTask?.Dispose();
-
-            if (this.sendTask?.IsCanceled == false)
-                this.sendTask?.Wait();
-            this.sendTask?.Dispose();
-
-            this.listenSocket.Close();
-            this.listenSocket.Dispose();
         }
     }
 }

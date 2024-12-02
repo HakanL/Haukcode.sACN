@@ -12,11 +12,11 @@ namespace Haukcode.sACN.Model
     {
         public const int SourceNameLength = 64;
 
-        public DMPLayer DMPLayer { get; set; }
+        public DMPLayer DMPLayer { get; set; } = null!;
 
         public override ushort Length { get { return (ushort)(13 + SourceNameLength + DMPLayer.Length); } }
 
-        public string SourceName { get; set; }
+        public string SourceName { get; set; } = null!;
 
         public ushort UniverseId { get; set; }
 
@@ -24,7 +24,7 @@ namespace Haukcode.sACN.Model
 
         public ushort SyncAddress { get; set; }
 
-        public FramingOptions Options { get; set; }
+        public FramingOptions Options { get; set; } = null!;
 
         public override int RootVector => RootLayer.VECTOR_ROOT_E131_DATA;
 

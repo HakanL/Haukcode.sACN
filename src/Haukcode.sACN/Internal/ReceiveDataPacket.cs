@@ -8,6 +8,6 @@ namespace Haukcode.sACN
 {
     public class ReceiveDataPacket : ReceiveDataBase
     {
-        public SACNPacket Packet { get; set; }
+        public SACNPacket Packet { get; set; } = null!;
     }
 }
