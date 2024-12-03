@@ -15,18 +15,20 @@
     <Description>A simple sACN library for .NET Core</Description>
     <Copyright></Copyright>
     <PackageTags>sACN;DMX</PackageTags>
-    <PackageReleaseNotes>1.0.0 - Refactored
-1.0.1 - Added methods to find local IPAddress
-1.0.2 - Added method for multi-universe listener
-1.0.3 - Changed DMXData property
-1.0.4 - Changed API for GetAddressesFromInterfaceType
-1.0.5 - Added method to list network adapters
-1.0.6 - Removed unused dependency
-1.0.7 - Make it Linux-compatible
-1.0.8 - Allow unknown operational status on network adapter
-2.0.0 - Allow for sync packets, breaking change
-2.0.13 - Fix issue with ReceiveMessageFrom and reusing the socket events
-2.0.16 - Fix incorrect byte order of Acn Source Id</PackageReleaseNotes>
+    <PackageReleaseNotes>
+      1.0.0 - Refactored
+      1.0.1 - Added methods to find local IPAddress
+      1.0.2 - Added method for multi-universe listener
+      1.0.3 - Changed DMXData property
+      1.0.4 - Changed API for GetAddressesFromInterfaceType
+      1.0.5 - Added method to list network adapters
+      1.0.6 - Removed unused dependency
+      1.0.7 - Make it Linux-compatible
+      1.0.8 - Allow unknown operational status on network adapter
+      2.0.0 - Allow for sync packets, breaking change
+      2.0.13 - Fix issue with ReceiveMessageFrom and reusing the socket events
+      2.0.16 - Fix incorrect byte order of Acn Source Id
+    </PackageReleaseNotes>
     <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <FileVersion>2.0.0.0</FileVersion>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -42,7 +44,13 @@
     <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- Conditional NuGet package reference -->
+  <ItemGroup Condition="'$(Configuration)' == 'Release'">
+    <PackageReference Include="Haukcode.HighPerfComm" Version="1.0.7" />
+  </ItemGroup>
+
+  <!-- Conditional project reference for local development -->
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
     <ProjectReference Include="..\..\..\Haukcode.HighPerfComm\src\Haukcode.HighPerfComm.csproj" />
   </ItemGroup>
 

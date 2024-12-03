@@ -53,7 +53,7 @@ namespace Haukcode.sACN.ConsoleExample
 
             while (true)
             {
-                sendClient.SendMulticast(1, new byte[] { 1, 2, 3, 4, 5 });
+                sendClient.SendDmxData(null, 1, new byte[] { 1, 2, 3, 4, 5 });
 
                 Thread.Sleep(500);
             }
