@@ -128,8 +128,8 @@ namespace Haukcode.sACN
             socket.DontFragment = true;
             socket.MulticastLoopback = false;
 
-            // Only join local LAN group
-            socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
+            // Only local LAN group
+            socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
         }
 
         public IPEndPoint LocalEndPoint => this.localEndPoint;
