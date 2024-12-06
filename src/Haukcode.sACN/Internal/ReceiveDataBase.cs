@@ -11,6 +11,6 @@ namespace Haukcode.sACN
 
         public IPEndPoint Source { get; set; } = null!;
         
-        public IPEndPoint Destination { get; set; } = null!;
+        public IPEndPoint? Destination { get; set; }
     }
 }

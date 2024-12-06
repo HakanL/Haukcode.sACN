@@ -52,7 +52,7 @@
     </When>
     <Otherwise>
       <ItemGroup>
-        <PackageReference Include="Haukcode.HighPerfComm" Version="1.0.8" />
+        <PackageReference Include="Haukcode.HighPerfComm" Version="1.0.10" />
       </ItemGroup>
     </Otherwise>
   </Choose>
