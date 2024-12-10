@@ -55,11 +55,18 @@ namespace Haukcode.sACN.Model
             short propertyValueCount = buffer.ReadInt16();
 
             byte startCode = buffer.ReadByte();
-            byte[] properties = buffer.ReadBytes(propertyValueCount - 1);
+            if (propertyValueCount > 0)
+            {
+                var properties = buffer.ReadSlice(propertyValueCount - 1);
 
-            var dmpLayer = new DMPLayer(properties, startCode);
+                var dmpLayer = new DMPLayer(properties, startCode);
 
-            return dmpLayer;
+                return dmpLayer;
+            }
+            else
+            {
+                return new DMPLayer(Array.Empty<byte>());
+            }
         }
     }
 }

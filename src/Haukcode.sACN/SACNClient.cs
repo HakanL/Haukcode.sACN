@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -15,7 +16,7 @@ using Haukcode.sACN.Model;
 
 namespace Haukcode.sACN
 {
-    public class SACNClient : Client<SACNClient.SendData, SocketReceiveMessageFromResult>
+    public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     {
         public class SendData : HighPerfComm.SendData
         {
@@ -24,12 +25,11 @@ namespace Haukcode.sACN
             public IPEndPoint? Destination { get; set; }
         }
 
-        private const int ReceiveBufferSize = 680 * 40 * 400;
-        private const int SendBufferSize = 680 * 20 * 400;
+        private const int ReceiveBufferSize = 680 * 20 * 200;
+        private const int SendBufferSize = 680 * 20 * 200;
         private static readonly IPEndPoint _blankEndpoint = new(IPAddress.Any, 0);
 
-        private readonly Socket listenMulticastSocket;
-        private readonly Socket listenUnicastSocket;
+        private Socket? listenSocket;
         private readonly Socket sendSocket;
         private readonly ISubject<ReceiveDataPacket> packetSubject;
         private readonly Dictionary<ushort, byte> sequenceIds = [];
@@ -41,7 +41,7 @@ namespace Haukcode.sACN
         private readonly Dictionary<ushort, IPEndPoint> universeMulticastEndpoints = [];
 
         public SACNClient(Guid senderId, string senderName, IPAddress localAddress, int port = 5568)
-            : base(() => new SendData(), 1024)
+            : base(() => new SendData(), SACNPacket.MAX_PACKET_SIZE)
         {
             if (senderId == Guid.Empty)
                 throw new ArgumentException("Invalid sender Id", nameof(senderId));
@@ -54,21 +54,6 @@ namespace Haukcode.sACN
             this.localEndPoint = new IPEndPoint(localAddress, port);
 
             this.packetSubject = new Subject<ReceiveDataPacket>();
-
-            this.listenMulticastSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            this.listenMulticastSocket.ReceiveBufferSize = ReceiveBufferSize;
-            SetSocketOptions(this.listenMulticastSocket);
-
-            this.listenUnicastSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            this.listenUnicastSocket.ReceiveBufferSize = ReceiveBufferSize;
-            SetSocketOptions(this.listenUnicastSocket);
-
-            // Linux wants IPAddress.Any to get multicast/broadcast packets
-            this.listenMulticastSocket.Bind(new IPEndPoint(IPAddress.Any, port));
-            this.listenUnicastSocket.Bind(this.localEndPoint);
-
-            // Only join local LAN group
-            this.listenMulticastSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
 
             this.sendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             ConfigureSendSocket(this.sendSocket);
@@ -109,8 +94,6 @@ namespace Haukcode.sACN
 
             SetSocketOptions(socket);
 
-            socket.Bind(this.localEndPoint);
-
             // Multicast socket settings
             socket.DontFragment = true;
             socket.MulticastLoopback = false;
@@ -136,16 +119,17 @@ namespace Haukcode.sACN
         /// </summary>
         public IReadOnlyCollection<ushort> DMXUniverses => this.dmxUniverses.ToList();
 
-        protected override bool SupportsTwoReceivers => true;
-
         public void JoinDMXUniverse(ushort universeId)
         {
+            if (this.listenSocket == null)
+                throw new ArgumentNullException();
+
             if (this.dmxUniverses.Contains(universeId))
                 throw new InvalidOperationException($"You have already joined the DMX Universe {universeId}");
 
             // Join group
             var option = new MulticastOption(SACNCommon.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            this.listenMulticastSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
 
             // Add to the list of universes we have joined
             this.dmxUniverses.Add(universeId);
@@ -153,12 +137,15 @@ namespace Haukcode.sACN
 
         public void DropDMXUniverse(ushort universeId)
         {
+            if (this.listenSocket == null)
+                return;
+
             if (!this.dmxUniverses.Contains(universeId))
                 throw new InvalidOperationException($"You are trying to drop the DMX Universe {universeId} but you are not a member");
 
             // Drop group
             var option = new MulticastOption(SACNCommon.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            this.listenMulticastSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
 
             // Remove from the list of universes we have joined
             this.dmxUniverses.Remove(universeId);
@@ -277,26 +264,6 @@ namespace Haukcode.sACN
             {
                 try
                 {
-                    this.listenMulticastSocket.Shutdown(SocketShutdown.Both);
-                }
-                catch
-                {
-                }
-                this.listenMulticastSocket.Close();
-                this.listenMulticastSocket.Dispose();
-
-                try
-                {
-                    this.listenUnicastSocket.Shutdown(SocketShutdown.Both);
-                }
-                catch
-                {
-                }
-                this.listenUnicastSocket.Close();
-                this.listenUnicastSocket.Dispose();
-
-                try
-                {
                     this.sendSocket.Shutdown(SocketShutdown.Both);
                 }
                 catch
@@ -323,43 +290,67 @@ namespace Haukcode.sACN
             return this.sendSocket.SendToAsync(payload, SocketFlags.None, destination);
         }
 
-        protected async override ValueTask<(int ReceivedBytes, SocketReceiveMessageFromResult Result)> ReceiveData1(Memory<byte> memory, CancellationToken cancelToken)
+        protected async override ValueTask<(int ReceivedBytes, SocketReceiveMessageFromResult Result)> ReceiveData(Memory<byte> memory, CancellationToken cancelToken)
         {
-            var result = await this.listenMulticastSocket.ReceiveMessageFromAsync(memory, SocketFlags.None, _blankEndpoint, cancelToken);
+            var result = await this.listenSocket!.ReceiveMessageFromAsync(memory, SocketFlags.None, _blankEndpoint, cancelToken);
 
             return (result.ReceivedBytes, result);
         }
 
-        protected async override ValueTask<(int ReceivedBytes, SocketReceiveMessageFromResult Result)> ReceiveData2(Memory<byte> memory, CancellationToken cancelToken)
+        protected override ReceiveDataPacket? TryParseObject(ReadOnlyMemory<byte> buffer, double timestampMS, IPEndPoint sourceIP, IPAddress destinationIP)
         {
-            var result = await this.listenUnicastSocket.ReceiveMessageFromAsync(memory, SocketFlags.None, _blankEndpoint, cancelToken);
+            var packet = SACNPacket.Parse(buffer);
 
-            return (result.ReceivedBytes, result);
-        }
-
-        protected override void ParseReceiveData(ReadOnlyMemory<byte> memory, SocketReceiveMessageFromResult result, double timestampMS)
-        {
-            var packet = SACNPacket.Parse(memory);
-
+            // Note that we're still using the memory from the pipeline here, the packet is not allocating its own DMX data byte array
             if (packet != null)
             {
-                var newPacket = new ReceiveDataPacket
+                var parsedObject = new ReceiveDataPacket
                 {
                     TimestampMS = timestampMS,
-                    Source = (IPEndPoint)result.RemoteEndPoint,
+                    Source = sourceIP,
                     Packet = packet
                 };
 
-                if (!this.endPointCache.TryGetValue(result.PacketInformation.Address, out var ipEndPoint))
+                if (!this.endPointCache.TryGetValue(destinationIP, out var ipEndPoint))
                 {
-                    ipEndPoint = (new IPEndPoint(result.PacketInformation.Address, this.localEndPoint.Port), result.PacketInformation.Address.GetAddressBytes()[0] == 239);
-                    this.endPointCache.Add(result.PacketInformation.Address, ipEndPoint);
+                    ipEndPoint = (new IPEndPoint(destinationIP, this.localEndPoint.Port), destinationIP.GetAddressBytes()[0] == 239);
+                    this.endPointCache.Add(destinationIP, ipEndPoint);
                 }
 
-                newPacket.Destination = ipEndPoint.Multicast ? null : ipEndPoint.EndPoint;
+                parsedObject.Destination = ipEndPoint.Multicast ? null : ipEndPoint.EndPoint;
 
-                this.packetSubject.OnNext(newPacket);
+                return parsedObject;
             }
+
+            return null;
+        }
+
+        protected override void InitializeReceiveSocket()
+        {
+            this.listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            this.listenSocket.ReceiveBufferSize = ReceiveBufferSize;
+            SetSocketOptions(this.listenSocket);
+
+            // Linux wants IPAddress.Any to get all types of packets (unicast/multicast/broadcast)
+            this.listenSocket.Bind(new IPEndPoint(IPAddress.Any, this.localEndPoint.Port));
+
+            // Only join local LAN group
+            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
+        }
+
+        protected override void DisposeReceiveSocket()
+        {
+            try
+            {
+                this.listenSocket?.Shutdown(SocketShutdown.Both);
+            }
+            catch
+            {
+            }
+
+            this.listenSocket?.Close();
+            this.listenSocket?.Dispose();
+            this.listenSocket = null;
         }
     }
 }
