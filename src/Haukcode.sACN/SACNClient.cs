@@ -9,6 +9,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Haukcode.HighPerfComm;
@@ -25,7 +26,7 @@ namespace Haukcode.sACN
             public IPEndPoint? Destination { get; set; }
         }
 
-        private const int ReceiveBufferSize = 680 * 20 * 200;
+        public const int ReceiveBufferSize = 680 * 20 * 200;
         private const int SendBufferSize = 680 * 20 * 200;
         private static readonly IPEndPoint _blankEndpoint = new(IPAddress.Any, 0);
 
@@ -346,10 +347,23 @@ namespace Haukcode.sACN
             return null;
         }
 
+        public int? ActualReceiveBufferSize
+        {
+            get
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                    // Linux reports the internal buffer size, which is double the requested size
+                    return this.listenSocket?.ReceiveBufferSize / 2;
+                else
+                    return this.listenSocket?.ReceiveBufferSize;
+            }
+        }
+
         protected override void InitializeReceiveSocket()
         {
             this.listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             this.listenSocket.ReceiveBufferSize = ReceiveBufferSize;
+
             SetSocketOptions(this.listenSocket);
 
             // Linux wants IPAddress.Any to get all types of packets (unicast/multicast/broadcast)
