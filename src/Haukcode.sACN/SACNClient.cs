@@ -159,7 +159,18 @@ namespace Haukcode.sACN
         /// <param name="dmxData">Up to 512 bytes of DMX data</param>
         /// <param name="syncAddress">Sync universe id</param>
         /// <param name="startCode">Start code (default 0)</param>
-        public Task SendDmxData(IPAddress? address, ushort universeId, ReadOnlyMemory<byte> dmxData, byte priority = 100, ushort syncAddress = 0, byte startCode = 0, bool important = false)
+        /// <param name="important">Important</param>
+        /// <param name="priority">Priority (default 100)</param>
+        /// <param name="terminate">Terminate</param>
+        public Task SendDmxData(
+            IPAddress? address,
+            ushort universeId,
+            ReadOnlyMemory<byte> dmxData,
+            byte priority = 100,
+            ushort syncAddress = 0,
+            byte startCode = 0,
+            bool important = false,
+            bool terminate = false)
         {
             if (!IsOperational)
                 return Task.CompletedTask;
@@ -167,6 +178,16 @@ namespace Haukcode.sACN
             byte sequenceId = GetNewSequenceId(universeId);
 
             var packet = new SACNDataPacket(universeId, SenderName, SenderId, sequenceId, dmxData, priority, syncAddress, startCode);
+
+            if (terminate)
+            {
+                packet.DataFramingLayer.Options.StreamTerminated = true;
+            }
+
+            if (syncAddress == 0)
+            {
+                packet.DataFramingLayer.Options.ForceSynchronization = true;
+            }
 
             return QueuePacket(universeId, address, packet, important);
         }
