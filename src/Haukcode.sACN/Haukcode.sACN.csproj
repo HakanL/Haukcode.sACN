@@ -36,7 +36,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Haukcode.Network" Version="1.0.12" />
+    <PackageReference Include="Haukcode.Network" Version="1.0.16" />
     <PackageReference Include="HdrHistogram" Version="2.5.0" />
     <PackageReference Include="System.Net.Http" Version="4.3.4" />
     <PackageReference Include="System.Net.NetworkInformation" Version="4.3.0" />

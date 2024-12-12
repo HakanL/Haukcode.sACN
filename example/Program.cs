@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Reactive.Linq;
 using System.Threading;
+using System.Threading.Channels;
 
 namespace Haukcode.sACN.ConsoleExample
 {
@@ -28,7 +29,7 @@ namespace Haukcode.sACN.ConsoleExample
             var sendClient = new SACNClient(
                 senderId: acnSourceId,
                 senderName: acnSourceName,
-                localAddress: Haukcode.Network.Helper.GetFirstBindAddress().IPAddress);
+                localAddress: Haukcode.Network.Utils.GetFirstBindAddress().IPAddress);
 
             recvClient.OnError.Subscribe(e =>
             {
@@ -47,7 +48,9 @@ namespace Haukcode.sACN.ConsoleExample
                 last = d.TimestampMS;
             });
 
-            recvClient.StartReceive();
+            var channel = Channel.CreateUnbounded<SACNPacket>();
+
+            recvClient.StartRecordPipeline(channel, x => x.Packet);
             recvClient.JoinDMXUniverse(1);
             recvClient.JoinDMXUniverse(2);
 

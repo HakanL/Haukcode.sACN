@@ -23,26 +23,33 @@ namespace Haukcode.sACN
         {
             public ushort UniverseId { get; set; }
 
-            public IPEndPoint? Destination { get; set; }
+            public IPEndPoint Destination { get; set; }
+
+            public SendData(ushort universeId, IPEndPoint destination)
+            {
+                UniverseId = universeId;
+                Destination = destination;
+            }
         }
 
+        public const int DefaultPort = 5568;
         public const int ReceiveBufferSize = 680 * 20 * 200;
         private const int SendBufferSize = 680 * 20 * 200;
         private static readonly IPEndPoint _blankEndpoint = new(IPAddress.Any, 0);
 
         private Socket? listenSocket;
         private readonly Socket sendSocket;
+        private readonly IPEndPoint localEndPoint;
         private readonly ISubject<ReceiveDataPacket> packetSubject;
         private readonly Dictionary<ushort, byte> sequenceIds = [];
         private readonly Dictionary<ushort, byte> sequenceIdsSync = [];
-        private readonly object lockObject = new();
+        private readonly Lock lockObject = new();
         private readonly HashSet<ushort> dmxUniverses = [];
         private readonly Dictionary<IPAddress, (IPEndPoint EndPoint, bool Multicast)> endPointCache = [];
-        private readonly IPEndPoint localEndPoint;
         private readonly Dictionary<ushort, IPEndPoint> universeMulticastEndpoints = [];
 
-        public SACNClient(Guid senderId, string senderName, IPAddress localAddress, int port = 5568)
-            : base(() => new SendData(), SACNPacket.MAX_PACKET_SIZE)
+        public SACNClient(Guid senderId, string senderName, IPAddress localAddress, int port = DefaultPort)
+            : base(SACNPacket.MAX_PACKET_SIZE)
         {
             if (senderId == Guid.Empty)
                 throw new ArgumentException("Invalid sender Id", nameof(senderId));
@@ -60,40 +67,11 @@ namespace Haukcode.sACN
             ConfigureSendSocket(this.sendSocket);
         }
 
-        private void SetSocketOptions(Socket socket)
-        {
-            // Set the SIO_UDP_CONNRESET ioctl to true for this UDP socket. If this UDP socket
-            //    ever sends a UDP packet to a remote destination that exists but there is
-            //    no socket to receive the packet, an ICMP port unreachable message is returned
-            //    to the sender. By default, when this is received the next operation on the
-            //    UDP socket that send the packet will receive a SocketException. The native
-            //    (Winsock) error that is received is WSAECONNRESET (10054). Since we don't want
-            //    to wrap each UDP socket operation in a try/except, we'll disable this error
-            //    for the socket with this ioctl call.
-            try
-            {
-                uint IOC_IN = 0x80000000;
-                uint IOC_VENDOR = 0x18000000;
-                uint SIO_UDP_CONNRESET = IOC_IN | IOC_VENDOR | 12;
-
-                byte[] optionInValue = { Convert.ToByte(false) };
-                byte[] optionOutValue = new byte[4];
-                socket.IOControl((int)SIO_UDP_CONNRESET, optionInValue, optionOutValue);
-            }
-            catch
-            {
-                Debug.WriteLine("Unable to set SIO_UDP_CONNRESET, maybe not supported.");
-            }
-
-            socket.ExclusiveAddressUse = false;
-            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-        }
-
         private void ConfigureSendSocket(Socket socket)
         {
             socket.SendBufferSize = SendBufferSize;
 
-            SetSocketOptions(socket);
+            Haukcode.Network.Utils.SetSocketOptions(socket);
 
             // Multicast socket settings
             socket.DontFragment = true;
@@ -129,7 +107,7 @@ namespace Haukcode.sACN
                 throw new InvalidOperationException($"You have already joined the DMX Universe {universeId}");
 
             // Join group
-            var option = new MulticastOption(SACNCommon.GetMulticastAddress(universeId), this.localEndPoint.Address);
+            var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
             this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
 
             // Add to the list of universes we have joined
@@ -145,7 +123,7 @@ namespace Haukcode.sACN
                 throw new InvalidOperationException($"You are trying to drop the DMX Universe {universeId} but you are not a member");
 
             // Drop group
-            var option = new MulticastOption(SACNCommon.GetMulticastAddress(universeId), this.localEndPoint.Address);
+            var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
             this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
 
             // Remove from the list of universes we have joined
@@ -227,23 +205,35 @@ namespace Haukcode.sACN
         /// <param name="important">Important</param>
         private async Task QueuePacket(ushort universeId, IPAddress? destination, SACNPacket packet, bool important)
         {
-            await base.QueuePacket(packet.Length, important, (newSendData, memory) =>
+            await base.QueuePacket(packet.Length, important, () =>
             {
+                IPEndPoint? sendDataDestination = null;
+
                 if (destination != null)
                 {
-                    if (!this.endPointCache.TryGetValue(destination, out var ipEndPoint))
+                    // Specified destination (but could be multicast, so check for that)
+                    if (!this.endPointCache.TryGetValue(destination, out var ipEndPointDetails))
                     {
-                        ipEndPoint = (new IPEndPoint(destination, this.localEndPoint.Port), destination.GetAddressBytes()[0] == 239);
-                        this.endPointCache.Add(destination, ipEndPoint);
+                        ipEndPointDetails = (new IPEndPoint(destination, this.localEndPoint.Port), Haukcode.Network.Utils.IsMulticast(destination));
+                        this.endPointCache.Add(destination, ipEndPointDetails);
                     }
 
-                    newSendData.Destination = ipEndPoint.Multicast ? null : ipEndPoint.EndPoint;
+                    sendDataDestination = ipEndPointDetails.Multicast ? null : ipEndPointDetails.EndPoint;
                 }
 
-                newSendData.UniverseId = universeId;
+                if (sendDataDestination == null)
+                {
+                    // Set the destination to the multicast address
+                    if (!universeMulticastEndpoints.TryGetValue(universeId, out sendDataDestination))
+                    {
+                        sendDataDestination = new IPEndPoint(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Port);
+                        universeMulticastEndpoints.Add(universeId, sendDataDestination);
+                    }
+                }
 
-                return packet.WriteToBuffer(memory);
-            });
+                return new SendData(universeId, sendDataDestination);
+            },
+            packet.WriteToBuffer);
         }
 
         public void WarmUpSockets(IEnumerable<ushort> universeIds)
@@ -298,18 +288,7 @@ namespace Haukcode.sACN
 
         protected override ValueTask<int> SendPacketAsync(SendData sendData, ReadOnlyMemory<byte> payload)
         {
-            var destination = sendData.Destination;
-
-            if (destination == null)
-            {
-                if (!universeMulticastEndpoints.TryGetValue(sendData.UniverseId, out destination))
-                {
-                    destination = new IPEndPoint(SACNCommon.GetMulticastAddress(sendData.UniverseId), this.localEndPoint.Port);
-                    universeMulticastEndpoints.Add(sendData.UniverseId, destination);
-                }
-            }
-
-            return this.sendSocket.SendToAsync(payload, SocketFlags.None, destination);
+            return this.sendSocket.SendToAsync(payload, SocketFlags.None, sendData.Destination!);
         }
 
         protected async override ValueTask<(int ReceivedBytes, SocketReceiveMessageFromResult Result)> ReceiveData(Memory<byte> memory, CancellationToken cancelToken)
@@ -335,7 +314,7 @@ namespace Haukcode.sACN
 
                 if (!this.endPointCache.TryGetValue(destinationIP, out var ipEndPoint))
                 {
-                    ipEndPoint = (new IPEndPoint(destinationIP, this.localEndPoint.Port), destinationIP.GetAddressBytes()[0] == 239);
+                    ipEndPoint = (new IPEndPoint(destinationIP, this.localEndPoint.Port), Haukcode.Network.Utils.IsMulticast(destinationIP));
                     this.endPointCache.Add(destinationIP, ipEndPoint);
                 }
 
@@ -364,7 +343,7 @@ namespace Haukcode.sACN
             this.listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             this.listenSocket.ReceiveBufferSize = ReceiveBufferSize;
 
-            SetSocketOptions(this.listenSocket);
+            Haukcode.Network.Utils.SetSocketOptions(this.listenSocket);
 
             // Linux wants IPAddress.Any to get all types of packets (unicast/multicast/broadcast)
             this.listenSocket.Bind(new IPEndPoint(IPAddress.Any, this.localEndPoint.Port));
