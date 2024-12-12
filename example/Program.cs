@@ -1,76 +1,140 @@
 ﻿using Haukcode.sACN;
 using Haukcode.sACN.Model;
 using System;
+using System.Buffers;
 using System.Linq;
 using System.Net;
 using System.Reactive.Linq;
 using System.Threading;
 using System.Threading.Channels;
+using System.Threading.Tasks;
 
-namespace Haukcode.sACN.ConsoleExample
+namespace Haukcode.sACN.ConsoleExample;
+
+public class Program
 {
-    public class Program
+    private static readonly Guid acnSourceId = new Guid("{B32625A6-C280-4389-BD25-E0D13F5B50E0}");
+    private static readonly string acnSourceName = "DMXPlayer";
+
+    private static MemoryPool<byte> memoryPool = MemoryPool<byte>.Shared;
+    private static double last = 0;
+
+    public static void Main(string[] args)
     {
-        private static readonly Guid acnSourceId = new Guid("{B32625A6-C280-4389-BD25-E0D13F5B50E0}");
-        private static readonly string acnSourceName = "DMXPlayer";
+        Listen();
+    }
 
-        public static void Main(string[] args)
+    static void Listen()
+    {
+        var recvClient = new SACNClient(
+            senderId: acnSourceId,
+            senderName: acnSourceName,
+            localAddress: IPAddress.Any);
+
+        var sendClient = new SACNClient(
+            senderId: acnSourceId,
+            senderName: acnSourceName,
+            localAddress: Haukcode.Network.Utils.GetFirstBindAddress().IPAddress);
+
+        recvClient.OnError.Subscribe(e =>
         {
-            Listen();
+            Console.WriteLine($"Error! {e.Message}");
+        });
+
+        //listener.OnReceiveRaw.Subscribe(d =>
+        //{
+        //    Console.WriteLine($"Received {d.Data.Length} bytes from {d.Host}");
+        //});
+
+        //recvClient.OnPacket.Subscribe(d =>
+        //{
+        //    Listener_OnPacket(d.TimestampMS, d.TimestampMS - last, d.Packet);
+        //    last = d.TimestampMS;
+        //});
+
+        var channel = Channel.CreateUnbounded<ReceiveDataPacket>();
+
+        // Not sure about the transform here, the packet may use memory from
+        // the memory pool and it may not be safe to pass it around like this
+        recvClient.StartRecordPipeline(p => WritePacket(channel, p), () => channel.Writer.Complete());
+
+        var writerTask = Task.Factory.StartNew(async () =>
+        {
+            await WriteToDiskAsync(channel, CancellationToken.None);
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
+
+        recvClient.JoinDMXUniverse(1);
+        recvClient.JoinDMXUniverse(2);
+
+        while (true)
+        {
+            sendClient.SendDmxData(null, 1, new byte[] { 1, 2, 3, 4, 5 });
+
+            Thread.Sleep(500);
+        }
+    }
+
+    private static async Task WritePacket(Channel<ReceiveDataPacket> channel, ReceiveDataPacket receiveData)
+    {
+        var dmxData = TransformPacket(receiveData);
+
+        if (dmxData == null)
+            return;
+
+        await channel.Writer.WriteAsync(dmxData, CancellationToken.None);
+    }
+
+    private static ReceiveDataPacket TransformPacket(ReceiveDataPacket receiveData)
+    {
+        var framingLayer = receiveData.Packet.RootLayer?.FramingLayer;
+        if (framingLayer == null)
+            return null;
+
+        switch (framingLayer)
+        {
+            case DataFramingLayer dataFramingLayer:
+                var dmpLayer = dataFramingLayer.DMPLayer;
+
+                if (dmpLayer == null || dmpLayer.Length < 1)
+                    // Unknown/unsupported
+                    return null;
+
+                if (dmpLayer.StartCode != 0)
+                    // We only support start code 0
+                    return null;
+
+                // Hack
+                var newBuf = new byte[dmpLayer.Data.Length];
+                dmpLayer.Data.CopyTo(newBuf);
+                dmpLayer.Data = newBuf;
+
+                return receiveData;
+
+            case SyncFramingLayer syncFramingLayer:
+                return receiveData;
         }
 
-        static void Listen()
+        return null;
+    }
+
+    private static async Task WriteToDiskAsync(Channel<ReceiveDataPacket> inputChannel, CancellationToken cancellationToken)
+    {
+        await foreach (var dmxData in inputChannel.Reader.ReadAllAsync(cancellationToken))
         {
-            var recvClient = new SACNClient(
-                senderId: acnSourceId,
-                senderName: acnSourceName,
-                localAddress: IPAddress.Any);
-
-            var sendClient = new SACNClient(
-                senderId: acnSourceId,
-                senderName: acnSourceName,
-                localAddress: Haukcode.Network.Utils.GetFirstBindAddress().IPAddress);
-
-            recvClient.OnError.Subscribe(e =>
-            {
-                Console.WriteLine($"Error! {e.Message}");
-            });
-
-            //listener.OnReceiveRaw.Subscribe(d =>
-            //{
-            //    Console.WriteLine($"Received {d.Data.Length} bytes from {d.Host}");
-            //});
-
-            double last = 0;
-            recvClient.OnPacket.Subscribe(d =>
-            {
-                Listener_OnPacket(d.TimestampMS, d.TimestampMS - last, d.Packet);
-                last = d.TimestampMS;
-            });
-
-            var channel = Channel.CreateUnbounded<SACNPacket>();
-
-            recvClient.StartRecordPipeline(channel, x => x.Packet);
-            recvClient.JoinDMXUniverse(1);
-            recvClient.JoinDMXUniverse(2);
-
-            while (true)
-            {
-                sendClient.SendDmxData(null, 1, new byte[] { 1, 2, 3, 4, 5 });
-
-                Thread.Sleep(500);
-            }
+            Listener_OnPacket(dmxData.TimestampMS, dmxData.TimestampMS - last, dmxData);
+            last = dmxData.TimestampMS;
         }
+    }
 
-        private static void Listener_OnPacket(double timestampMS, double sinceLast, SACNPacket e)
-        {
-            var dataPacket = e as SACNDataPacket;
-            if (dataPacket == null)
-                return;
+    private static void Listener_OnPacket(double timestampMS, double sinceLast, ReceiveDataPacket e)
+    {
+        var dataPacket = e.Packet.RootLayer.FramingLayer as DataFramingLayer;
 
-            Console.Write($"+{sinceLast:N2}\t");
-            Console.Write($"Packet from {dataPacket.SourceName}\tu{dataPacket.UniverseId}\ts{dataPacket.SequenceId}\t");
-            Console.WriteLine($"Data {string.Join(",", dataPacket.DMXData.Take(16))}...");
-        }
+        if (dataPacket == null)
+            return;
+
+        Console.Write($"+{sinceLast:N2}\t");
+        Console.Write($"Packet from {dataPacket.SourceName}\tu{dataPacket.UniverseId}\ts{dataPacket.SequenceId}\t");
+        Console.WriteLine($"Data {string.Join(",", dataPacket.DMPLayer.Data.ToArray().Take(16))}...");
     }
 }

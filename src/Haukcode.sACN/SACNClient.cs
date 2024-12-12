@@ -21,13 +21,10 @@ namespace Haukcode.sACN
     {
         public class SendData : HighPerfComm.SendData
         {
-            public ushort UniverseId { get; set; }
-
             public IPEndPoint Destination { get; set; }
 
-            public SendData(ushort universeId, IPEndPoint destination)
+            public SendData(IPEndPoint destination)
             {
-                UniverseId = universeId;
                 Destination = destination;
             }
         }
@@ -40,7 +37,6 @@ namespace Haukcode.sACN
         private Socket? listenSocket;
         private readonly Socket sendSocket;
         private readonly IPEndPoint localEndPoint;
-        private readonly ISubject<ReceiveDataPacket> packetSubject;
         private readonly Dictionary<ushort, byte> sequenceIds = [];
         private readonly Dictionary<ushort, byte> sequenceIdsSync = [];
         private readonly Lock lockObject = new();
@@ -54,31 +50,24 @@ namespace Haukcode.sACN
             if (senderId == Guid.Empty)
                 throw new ArgumentException("Invalid sender Id", nameof(senderId));
             SenderId = senderId;
-
             SenderName = senderName;
 
             if (port <= 0)
                 throw new ArgumentException("Invalid port", nameof(port));
+
             this.localEndPoint = new IPEndPoint(localAddress, port);
 
-            this.packetSubject = new Subject<ReceiveDataPacket>();
-
             this.sendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            ConfigureSendSocket(this.sendSocket);
-        }
+            this.sendSocket.SendBufferSize = SendBufferSize;
 
-        private void ConfigureSendSocket(Socket socket)
-        {
-            socket.SendBufferSize = SendBufferSize;
-
-            Haukcode.Network.Utils.SetSocketOptions(socket);
+            Haukcode.Network.Utils.SetSocketOptions(this.sendSocket);
 
             // Multicast socket settings
-            socket.DontFragment = true;
-            socket.MulticastLoopback = false;
+            this.sendSocket.DontFragment = true;
+            this.sendSocket.MulticastLoopback = false;
 
             // Only local LAN group
-            socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
+            this.sendSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
         }
 
         public IPEndPoint LocalEndPoint => this.localEndPoint;
@@ -86,12 +75,6 @@ namespace Haukcode.sACN
         public Guid SenderId { get; }
 
         public string SenderName { get; }
-
-        /// <summary>
-        /// Observable that provides all parsed packets. This is buffered on its own thread so the processing can
-        /// take any time necessary (memory consumption will go up though, there is no upper limit to amount of data buffered).
-        /// </summary>
-        public IObservable<ReceiveDataPacket> OnPacket => this.packetSubject.AsObservable();
 
         /// <summary>
         /// Gets a list of dmx universes this socket has joined to
@@ -168,7 +151,7 @@ namespace Haukcode.sACN
                 packet.DataFramingLayer.Options.ForceSynchronization = true;
             }
 
-            return QueuePacket(universeId, address, packet, important);
+            return QueuePacketForSending(universeId, address, packet, important);
         }
 
         /// <summary>
@@ -193,7 +176,7 @@ namespace Haukcode.sACN
                 }
             });
 
-            return QueuePacket(syncAddress, address, packet, true);
+            return QueuePacketForSending(syncAddress, address, packet, true);
         }
 
         /// <summary>
@@ -203,7 +186,7 @@ namespace Haukcode.sACN
         /// <param name="destination">Destination</param>
         /// <param name="packet">Packet</param>
         /// <param name="important">Important</param>
-        private async Task QueuePacket(ushort universeId, IPAddress? destination, SACNPacket packet, bool important)
+        private async Task QueuePacketForSending(ushort universeId, IPAddress? destination, SACNPacket packet, bool important)
         {
             await base.QueuePacket(packet.Length, important, () =>
             {
@@ -231,13 +214,9 @@ namespace Haukcode.sACN
                     }
                 }
 
-                return new SendData(universeId, sendDataDestination);
+                return new SendData(sendDataDestination);
             },
             packet.WriteToBuffer);
-        }
-
-        public void WarmUpSockets(IEnumerable<ushort> universeIds)
-        {
         }
 
         private byte GetNewSequenceId(ushort universeId)
