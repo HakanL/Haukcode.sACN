@@ -41,23 +41,23 @@ namespace Haukcode.sACN.Model
             return writer.BytesWritten;
         }
 
-        internal static DMPLayer Parse(BigEndianBinaryReader buffer)
+        internal static DMPLayer Parse(BigEndianBinaryReader reader)
         {
-            short flagsAndDMPLength = buffer.ReadInt16();
-            byte vector3 = buffer.ReadByte();
+            short flagsAndDMPLength = reader.ReadInt16();
+            byte vector3 = reader.ReadByte();
             Debug.Assert(vector3 == DMP_VECTOR);
-            byte addressTypeAndDataType = buffer.ReadByte();
+            byte addressTypeAndDataType = reader.ReadByte();
             Debug.Assert(addressTypeAndDataType == ADDRESS_TYPE_AND_DATA_TYPE);
-            short firstPropertyAddress = buffer.ReadInt16();
+            short firstPropertyAddress = reader.ReadInt16();
             Debug.Assert(firstPropertyAddress == FIRST_PROPERTY_ADDRESS);
-            short addressIncrement = buffer.ReadInt16();
+            short addressIncrement = reader.ReadInt16();
             Debug.Assert(addressIncrement == ADDRESS_INCREMENT);
-            short propertyValueCount = buffer.ReadInt16();
+            short propertyValueCount = reader.ReadInt16();
 
-            byte startCode = buffer.ReadByte();
+            byte startCode = reader.ReadByte();
             if (propertyValueCount > 0)
             {
-                var properties = buffer.ReadSlice(propertyValueCount - 1);
+                var properties = reader.ReadSlice(propertyValueCount - 1);
 
                 var dmpLayer = new DMPLayer(properties, startCode);
 

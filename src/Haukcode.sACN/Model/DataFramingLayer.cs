@@ -60,29 +60,29 @@ namespace Haukcode.sACN.Model
             return writer.BytesWritten + DMPLayer.WriteToBuffer(writer.Memory);
         }
 
-        internal static DataFramingLayer Parse(BigEndianBinaryReader buffer)
+        internal static DataFramingLayer Parse(BigEndianBinaryReader reader)
         {
-            ushort flagsAndFramingLength = buffer.ReadUInt16();
+            ushort flagsAndFramingLength = reader.ReadUInt16();
             ushort flags = (ushort)(flagsAndFramingLength & SACNPacket.FIRST_FOUR_BITS_MASK);
             Debug.Assert(flags == SACNPacket.FLAGS);
             ushort length = (ushort)(flagsAndFramingLength & SACNPacket.LAST_TWELVE_BITS_MASK);
 
-            int vector = buffer.ReadInt32();
+            int vector = reader.ReadInt32();
             Debug.Assert(vector == VECTOR_E131_DATA_PACKET);
-            string sourceName = buffer.ReadString(64);
-            byte priority = buffer.ReadByte();
-            ushort syncAddress = buffer.ReadUInt16();
-            byte sequenceID = buffer.ReadByte();
-            byte optionsByte = buffer.ReadByte();
+            string sourceName = reader.ReadString(64);
+            byte priority = reader.ReadByte();
+            ushort syncAddress = reader.ReadUInt16();
+            byte sequenceID = reader.ReadByte();
+            byte optionsByte = reader.ReadByte();
             var options = FramingOptions.Parse(optionsByte);
 
-            ushort universeID = buffer.ReadUInt16();
+            ushort universeID = reader.ReadUInt16();
 
             var framingLayer = new DataFramingLayer
             {
                 SequenceId = sequenceID,
                 SourceName = sourceName,
-                DMPLayer = DMPLayer.Parse(buffer),
+                DMPLayer = DMPLayer.Parse(reader),
                 Options = options,
                 UniverseId = universeID,
                 Priority = priority,

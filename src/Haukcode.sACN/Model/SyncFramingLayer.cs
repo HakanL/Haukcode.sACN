@@ -40,18 +40,18 @@ namespace Haukcode.sACN.Model
             return writer.BytesWritten;
         }
 
-        internal static SyncFramingLayer Parse(BigEndianBinaryReader buffer)
+        internal static SyncFramingLayer Parse(BigEndianBinaryReader reader)
         {
-            ushort flagsAndFramingLength = (ushort)buffer.ReadInt16();
+            ushort flagsAndFramingLength = (ushort)reader.ReadInt16();
             ushort flags = (ushort)(flagsAndFramingLength & SACNPacket.FIRST_FOUR_BITS_MASK);
             Debug.Assert(flags == SACNPacket.FLAGS);
             ushort length = (ushort)(flagsAndFramingLength & SACNPacket.LAST_TWELVE_BITS_MASK);
 
-            int vector = buffer.ReadInt32();
+            int vector = reader.ReadInt32();
             Debug.Assert(vector == VECTOR_E131_EXTENDED_SYNCHRONIZATION);
-            byte sequenceID = buffer.ReadByte();
-            ushort syncAddress = buffer.ReadUInt16();
-            ushort reserved = buffer.ReadUInt16();
+            byte sequenceID = reader.ReadByte();
+            ushort syncAddress = reader.ReadUInt16();
+            ushort reserved = reader.ReadUInt16();
 
             var framingLayer = new SyncFramingLayer
             {

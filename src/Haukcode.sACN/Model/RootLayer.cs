@@ -59,27 +59,27 @@ namespace Haukcode.sACN.Model
             return writer.BytesWritten + FramingLayer.WriteToBuffer(writer.Memory);
         }
 
-        internal static RootLayer Parse(BigEndianBinaryReader buffer)
+        internal static RootLayer Parse(BigEndianBinaryReader reader)
         {
-            short preambleLength = buffer.ReadInt16();
+            short preambleLength = reader.ReadInt16();
             if (preambleLength != PREAMBLE_LENGTH)
                 throw new InvalidDataException("preambleLength != PREAMBLE_LENGTH");
 
-            short postambleLength = buffer.ReadInt16();
+            short postambleLength = reader.ReadInt16();
             if (postambleLength != POSTAMBLE_LENGTH)
                 throw new InvalidDataException("postambleLength != POSTAMBLE_LENGTH");
 
-            if (!buffer.VerifyBytes(PACKET_IDENTIFIER))
+            if (!reader.VerifyBytes(PACKET_IDENTIFIER))
                 throw new InvalidDataException("packetIdentifier != PACKET_IDENTIFIER");
 
-            ushort flagsAndRootLength = (ushort)buffer.ReadInt16();
+            ushort flagsAndRootLength = (ushort)reader.ReadInt16();
             ushort flags = (ushort)(flagsAndRootLength & SACNPacket.FIRST_FOUR_BITS_MASK);
             if (flags != SACNPacket.FLAGS)
                 throw new InvalidDataException("flags != SACNPacket.FLAGS");
 
             ushort length = (ushort)(flagsAndRootLength & SACNPacket.LAST_TWELVE_BITS_MASK);
-            int vector = buffer.ReadInt32();
-            Guid cid = buffer.ReadGuid();
+            int vector = reader.ReadInt32();
+            Guid cid = reader.ReadGuid();
 
             switch (vector)
             {
@@ -87,14 +87,14 @@ namespace Haukcode.sACN.Model
                     return new RootLayer
                     {
                         UUID = cid,
-                        FramingLayer = DataFramingLayer.Parse(buffer)
+                        FramingLayer = DataFramingLayer.Parse(reader)
                     };
 
                 case VECTOR_ROOT_E131_EXTENDED:
                     return new RootLayer
                     {
                         UUID = cid,
-                        FramingLayer = SyncFramingLayer.Parse(buffer)
+                        FramingLayer = SyncFramingLayer.Parse(reader)
                     };
 
                 default:

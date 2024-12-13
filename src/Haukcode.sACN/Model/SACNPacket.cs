@@ -25,15 +25,15 @@ namespace Haukcode.sACN.Model
             RootLayer = rootLayer;
         }
 
-        public int WriteToBuffer(Memory<byte> buffer)
+        public int WriteToBuffer(Memory<byte> outputBuffer)
         {
-            return RootLayer.WriteToBuffer(buffer);
+            return RootLayer.WriteToBuffer(outputBuffer);
         }
 
         public static SACNPacket Parse(ReadOnlyMemory<byte> inputBuffer)
         {
-            var buffer = new BigEndianBinaryReader(inputBuffer);
-            var rootLayer = RootLayer.Parse(buffer);
+            var reader = new BigEndianBinaryReader(inputBuffer);
+            var rootLayer = RootLayer.Parse(reader);
 
             if (rootLayer.FramingLayer is DataFramingLayer)
                 return new SACNDataPacket(rootLayer);
