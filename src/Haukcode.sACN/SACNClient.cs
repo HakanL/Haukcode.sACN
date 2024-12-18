@@ -284,6 +284,10 @@ namespace Haukcode.sACN
             // Note that we're still using the memory from the pipeline here, the packet is not allocating its own DMX data byte array
             if (packet != null)
             {
+                if ((packet.FramingLayer as DataFramingLayer)?.Options.StreamTerminated == true)
+                    // Ignore the terminate packets
+                    return null;
+
                 var parsedObject = new ReceiveDataPacket
                 {
                     TimestampMS = timestampMS,
