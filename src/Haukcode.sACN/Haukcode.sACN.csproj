@@ -35,6 +35,14 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <UseProjectReference>true</UseProjectReference>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <UseProjectReference>true</UseProjectReference>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Haukcode.Network" Version="1.0.22" />
     <PackageReference Include="HdrHistogram" Version="2.5.0" />
@@ -44,17 +52,11 @@
     <PackageReference Include="System.Text.RegularExpressions" Version="4.3.1" />
   </ItemGroup>
 
-  <Choose>
-    <When Condition="'$(Configuration)' == 'Debug'">
-      <ItemGroup>
-        <ProjectReference Include="..\..\..\Haukcode.HighPerfComm\src\Haukcode.HighPerfComm.csproj" />
-      </ItemGroup>
-    </When>
-    <Otherwise>
-      <ItemGroup>
-        <PackageReference Include="Haukcode.HighPerfComm" Version="1.0.13" />
-      </ItemGroup>
-    </Otherwise>
-  </Choose>
+  <ItemGroup Condition="'$(UseProjectReference)' == 'true'">
+    <ProjectReference Include="..\..\..\Haukcode.HighPerfComm\src\Haukcode.HighPerfComm.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseProjectReference)' != 'true'">
+    <PackageReference Include="Haukcode.HighPerfComm" Version="1.0.15" />
+  </ItemGroup>
 
 </Project>
