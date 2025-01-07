@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
     <AssemblyName>Haukcode.sACN</AssemblyName>
     <PackageId>Haukcode.sACN</PackageId>
     <GenerateAssemblyConfigurationAttribute>false</GenerateAssemblyConfigurationAttribute>
@@ -52,7 +52,7 @@
     <ProjectReference Include="..\..\..\Haukcode.HighPerfComm\src\Haukcode.HighPerfComm.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseProjectReference)' != 'true'">
-    <PackageReference Include="Haukcode.HighPerfComm" Version="1.0.15" />
+    <PackageReference Include="Haukcode.HighPerfComm" Version="1.0.17" />
   </ItemGroup>
 
 </Project>

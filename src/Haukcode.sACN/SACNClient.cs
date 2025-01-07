@@ -39,7 +39,7 @@ namespace Haukcode.sACN
         private readonly IPEndPoint localEndPoint;
         private readonly Dictionary<ushort, byte> sequenceIds = [];
         private readonly Dictionary<ushort, byte> sequenceIdsSync = [];
-        private readonly Lock lockObject = new();
+        private readonly object lockObject = new();
         private readonly HashSet<ushort> dmxUniverses = [];
         private readonly Dictionary<IPAddress, (IPEndPoint EndPoint, bool Multicast)> endPointCache = [];
         private readonly Dictionary<ushort, IPEndPoint> universeMulticastEndpoints = [];
