@@ -66,6 +66,9 @@ namespace Haukcode.sACN
             this.sendSocket.DontFragment = true;
             this.sendSocket.MulticastLoopback = false;
 
+            // Bind to the local interface
+            this.sendSocket.Bind(new IPEndPoint(localAddress, 0));
+
             // Only local LAN group
             this.sendSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
         }
