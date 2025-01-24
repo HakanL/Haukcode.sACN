@@ -11,6 +11,7 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Haukcode.HighPerfComm;
 using Haukcode.sACN.Model;
@@ -41,11 +42,18 @@ namespace Haukcode.sACN
         private readonly Dictionary<ushort, byte> sequenceIdsSync = [];
         private readonly object lockObject = new();
         private readonly HashSet<ushort> dmxUniverses = [];
+        private readonly HashSet<ushort> triggerUniverses = [];
         private readonly Dictionary<IPAddress, (IPEndPoint EndPoint, bool Multicast)> endPointCache = [];
         private readonly Dictionary<ushort, IPEndPoint> universeMulticastEndpoints = [];
 
-        public SACNClient(Guid senderId, string senderName, IPAddress localAddress, int port = DefaultPort)
-            : base(SACNPacket.MAX_PACKET_SIZE)
+        public SACNClient(
+            Guid senderId,
+            string senderName,
+            IPAddress localAddress,
+            Func<ReceiveDataPacket, Task>? channelWriter = null,
+            Action? channelWriterComplete = null,
+            int port = DefaultPort)
+            : base(SACNPacket.MAX_PACKET_SIZE, channelWriter, channelWriterComplete)
         {
             if (senderId == Guid.Empty)
                 throw new ArgumentException("Invalid sender Id", nameof(senderId));
@@ -71,6 +79,8 @@ namespace Haukcode.sACN
 
             // Only local LAN group
             this.sendSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
+
+            StartReceive();
         }
 
         public IPEndPoint LocalEndPoint => this.localEndPoint;
@@ -92,9 +102,13 @@ namespace Haukcode.sACN
             if (this.dmxUniverses.Contains(universeId))
                 throw new InvalidOperationException($"You have already joined the DMX Universe {universeId}");
 
-            // Join group
-            var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            // See if we already have a listener for this universe for triggers
+            if (!this.triggerUniverses.Contains(universeId))
+            {
+                // Join group
+                var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
+                this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            }
 
             // Add to the list of universes we have joined
             this.dmxUniverses.Add(universeId);
@@ -108,12 +122,70 @@ namespace Haukcode.sACN
             if (!this.dmxUniverses.Contains(universeId))
                 throw new InvalidOperationException($"You are trying to drop the DMX Universe {universeId} but you are not a member");
 
-            // Drop group
-            var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+            if (!this.triggerUniverses.Contains(universeId))
+            {
+                // Drop group
+                var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
+                this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+            }
 
             // Remove from the list of universes we have joined
             this.dmxUniverses.Remove(universeId);
+        }
+
+        public void DropAllTriggerUniverses()
+        {
+            foreach (ushort universeId in this.triggerUniverses)
+            {
+                DropDMXUniverseForTrigger(universeId);
+            }
+        }
+
+        public void DropAllInputUniverses()
+        {
+            foreach (ushort universeId in this.dmxUniverses)
+            {
+                DropDMXUniverse(universeId);
+            }
+        }
+
+        public void JoinDMXUniverseForTrigger(ushort universeId)
+        {
+            if (this.listenSocket == null)
+                throw new ArgumentNullException();
+
+            if (this.triggerUniverses.Contains(universeId))
+                // Already joined
+                return;
+
+            if (!this.dmxUniverses.Contains(universeId))
+            {
+                // Join group
+                var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
+                this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            }
+
+            this.triggerUniverses.Add(universeId);
+        }
+
+        public void DropDMXUniverseForTrigger(ushort universeId)
+        {
+            if (this.listenSocket == null)
+                return;
+
+            if (!this.triggerUniverses.Contains(universeId))
+                // Already dropped
+                return;
+
+            if (!this.dmxUniverses.Contains(universeId))
+            {
+                // Drop group
+                var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
+                this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+            }
+
+            // Remove from the list of universes we have joined
+            this.triggerUniverses.Remove(universeId);
         }
 
         /// <summary>
