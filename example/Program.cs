@@ -26,10 +26,14 @@ public class Program
 
     static void Listen()
     {
+        var channel = Channel.CreateUnbounded<ReceiveDataPacket>();
+
         var recvClient = new SACNClient(
             senderId: acnSourceId,
             senderName: acnSourceName,
-            localAddress: IPAddress.Any);
+            localAddress: IPAddress.Any,
+            channelWriter: p => WritePacket(channel, p),
+            channelWriterComplete: () => channel.Writer.Complete());
 
         var sendClient = new SACNClient(
             senderId: acnSourceId,
@@ -41,26 +45,9 @@ public class Program
             Console.WriteLine($"Error! {e.Message}");
         });
 
-        //listener.OnReceiveRaw.Subscribe(d =>
-        //{
-        //    Console.WriteLine($"Received {d.Data.Length} bytes from {d.Host}");
-        //});
-
-        //recvClient.OnPacket.Subscribe(d =>
-        //{
-        //    Listener_OnPacket(d.TimestampMS, d.TimestampMS - last, d.Packet);
-        //    last = d.TimestampMS;
-        //});
-
-        var channel = Channel.CreateUnbounded<ReceiveDataPacket>();
-
-        // Not sure about the transform here, the packet may use memory from
-        // the memory pool and it may not be safe to pass it around like this
-        recvClient.StartRecordPipeline(p => WritePacket(channel, p), () => channel.Writer.Complete());
-
         var writerTask = Task.Factory.StartNew(async () =>
         {
-            await WriteToDiskAsync(channel, CancellationToken.None);
+            await WriteToWriterAsync(channel, CancellationToken.None);
         }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
 
         recvClient.JoinDMXUniverse(1);
@@ -117,7 +104,7 @@ public class Program
         return null;
     }
 
-    private static async Task WriteToDiskAsync(Channel<ReceiveDataPacket> inputChannel, CancellationToken cancellationToken)
+    private static async Task WriteToWriterAsync(Channel<ReceiveDataPacket> inputChannel, CancellationToken cancellationToken)
     {
         await foreach (var dmxData in inputChannel.Reader.ReadAllAsync(cancellationToken))
         {
