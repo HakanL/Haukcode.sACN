@@ -1,0 +1,10 @@
+{
+  "solution": {
+    "path": "Haukcode.sACN.sln",
+    "projects": [
+      "example\\Haukcode.sACN.ConsoleExample.csproj",
+      "src\\Haukcode.sACN\\Haukcode.sACN.csproj",
+      "test\\Haukcode.sACN.UnitTest.csproj"
+    ]
+  }
+}
