@@ -42,7 +42,7 @@ jobs:
       with:
         dotnet-version: 9.0.100
     - name: Install dependencies
-      run: dotnet restore /p:Configuration=Release
+      run: dotnet restore src/Haukcode.sACN/Haukcode.sACN.csproj /p:Configuration=Release
       env:
         DOTNET_CLI_TELEMETRY_OPTOUT: 1
     - name: Build
