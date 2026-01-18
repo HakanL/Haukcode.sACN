@@ -216,7 +216,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             packet.DataFramingLayer.Options.StreamTerminated = true;
         }
 
-        if (syncAddress == 0)
+        if (syncAddress != 0)
         {
             packet.DataFramingLayer.Options.ForceSynchronization = true;
         }
