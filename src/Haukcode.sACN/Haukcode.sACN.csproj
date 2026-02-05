@@ -42,7 +42,7 @@
 
   <ItemGroup>
     <PackageReference Include="Haukcode.Network" Version="1.0.26" />
-    <PackageReference Include="Haukcode.HighPerfComm" Version="1.0.28" />
+    <PackageReference Include="Haukcode.HighPerfComm" Version="1.0.29" />
     <PackageReference Include="HdrHistogram" Version="2.5.0" />
     <PackageReference Include="System.Reactive" Version="6.1.0" />
   </ItemGroup>
