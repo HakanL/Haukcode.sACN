@@ -76,7 +76,7 @@ Install-Package Haukcode.sACN
 Or add directly to your `.csproj` file:
 
 ```xml
-<PackageReference Include="Haukcode.sACN" Version="2.0.*" />
+<PackageReference Include="Haukcode.sACN" Version="2.0.0" />
 ```
 
 ## Quick Start
@@ -86,7 +86,9 @@ Or add directly to your `.csproj` file:
 ```csharp
 using Haukcode.sACN;
 using Haukcode.sACN.Model;
+using System;
 using System.Net;
+using System.Threading.Channels;
 
 // Create a unique sender ID and name for this client
 var senderId = Guid.NewGuid();
@@ -293,7 +295,7 @@ public class DMXSender
         await client.SendDmxData(
             address: null,
             universeId: 1,
-            dmxData: new byte[0],
+            dmxData: Array.Empty<byte>(),
             priority: 100,
             terminate: true);
     }
