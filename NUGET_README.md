@@ -23,6 +23,7 @@ sACN (Streaming ACN / ANSI E1.31) is a network protocol for transmitting DMX512 
 using Haukcode.sACN;
 using Haukcode.sACN.Model;
 using System.Net;
+using System.Threading.Channels;
 
 var channel = Channel.CreateUnbounded<ReceiveDataPacket>();
 
