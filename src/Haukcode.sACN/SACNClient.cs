@@ -77,7 +77,6 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         // Bind to the local interface
         this.sendSocket.Bind(new IPEndPoint(localAddress, 0));
 
-        // Only local LAN group
         this.sendSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
 
         StartReceive();
@@ -411,7 +410,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         this.listenSocket.Bind(new IPEndPoint(IPAddress.Any, this.localEndPoint.Port));
 
         // Only join local LAN group
-        this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
+        this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
     }
 
     protected override void DisposeReceiveSocket()
