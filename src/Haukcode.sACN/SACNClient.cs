@@ -494,4 +494,14 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         this.listenSocket?.Dispose();
         this.listenSocket = null;
     }
+
+    public void JoinDiscoveryMulticastGroup()
+    {
+        if (this.listenSocket == null)
+            throw new ArgumentNullException();
+
+        // Join group
+        var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
+        this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+    }
 }
