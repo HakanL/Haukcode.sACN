@@ -37,6 +37,8 @@ namespace Haukcode.sACN.Model
 
             if (rootLayer.FramingLayer is DataFramingLayer)
                 return new SACNDataPacket(rootLayer);
+            if (rootLayer.FramingLayer is UniverseDiscoveryFramingLayer)
+                return new SACNUniverseDiscoveryPacket(rootLayer);
             else
                 return new SACNPacket(rootLayer);
         }

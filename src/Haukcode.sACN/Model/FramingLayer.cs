@@ -6,6 +6,7 @@ namespace Haukcode.sACN.Model
     {
         public const int VECTOR_E131_DATA_PACKET = 0x00000002;
         public const int VECTOR_E131_EXTENDED_SYNCHRONIZATION = 0x00000001;
+        public const int VECTOR_E131_EXTENDED_DISCOVERY = 0x00000002;
 
         public abstract ushort Length { get; }
 

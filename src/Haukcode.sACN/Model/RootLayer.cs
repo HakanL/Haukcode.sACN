@@ -44,6 +44,15 @@ namespace Haukcode.sACN.Model
             };
         }
 
+        public static RootLayer CreateRootLayerUniverseDiscovery(Guid uuid, string sourceName, ushort[] universes, byte page = 0, byte lastPage = 0)
+        {
+            return new RootLayer
+            {
+                UUID = uuid,
+                FramingLayer = new UniverseDiscoveryFramingLayer(sourceName, universes, page, lastPage)
+            };
+        }
+
         public int WriteToBuffer(Memory<byte> buffer)
         {
             var writer = new BigEndianBinaryWriter(buffer);
@@ -91,11 +100,23 @@ namespace Haukcode.sACN.Model
                     };
 
                 case VECTOR_ROOT_E131_EXTENDED:
-                    return new RootLayer
                     {
-                        UUID = cid,
-                        FramingLayer = SyncFramingLayer.Parse(reader)
-                    };
+                        ushort flagsAndFramingLength = reader.ReadUInt16();
+                        int framingVector = reader.ReadInt32();
+
+                        FramingLayer framingLayer = framingVector switch
+                        {
+                            FramingLayer.VECTOR_E131_EXTENDED_SYNCHRONIZATION => SyncFramingLayer.Parse(reader, flagsAndFramingLength, framingVector),
+                            FramingLayer.VECTOR_E131_EXTENDED_DISCOVERY => UniverseDiscoveryFramingLayer.Parse(reader, flagsAndFramingLength, framingVector),
+                            _ => throw new ArgumentException($"Unknown extended framing vector {framingVector}")
+                        };
+
+                        return new RootLayer
+                        {
+                            UUID = cid,
+                            FramingLayer = framingLayer
+                        };
+                    }
 
                 default:
                     throw new ArgumentException($"Unknown vector {vector}");

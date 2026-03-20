@@ -32,6 +32,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     public const int DefaultPort = 5568;
     public const int ReceiveBufferSize = 680 * 20 * 200;
+    public static readonly IPAddress UniverseDiscoveryMulticastAddress = IPAddress.Parse("239.255.250.133");
     private const int SendBufferSize = 680 * 20 * 200;
     private static readonly IPEndPoint _blankEndpoint = new(IPAddress.Any, 0);
 
@@ -246,6 +247,26 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         });
 
         return QueuePacketForSending(syncAddress, address, packet, true);
+    }
+
+    /// <summary>
+    /// Send universe discovery (E1.31 extended discovery packet)
+    /// </summary>
+    /// <param name="address">Optional unicast destination. If null, uses the universe discovery multicast address.</param>
+    /// <param name="universes">Universe IDs to advertise.</param>
+    /// <param name="page">Page number.</param>
+    /// <param name="lastPage">Last page number.</param>
+    /// <param name="important">Important</param>
+    public Task SendUniverseDiscovery(IPAddress? address, IEnumerable<ushort> universes, byte page = 0, byte lastPage = 0, bool important = true)
+    {
+        if (!IsOperational)
+            return Task.CompletedTask;
+
+        var packet = new SACNUniverseDiscoveryPacket(SenderId, SenderName, universes, page, lastPage);
+
+        var destination = new IPEndPoint(address ?? UniverseDiscoveryMulticastAddress, this.localEndPoint.Port);
+
+        return SendPacketImmediately(destination, packet, important);
     }
 
     /// <summary>
