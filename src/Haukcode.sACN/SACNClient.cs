@@ -46,6 +46,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     private readonly HashSet<ushort> triggerUniverses = [];
     private readonly Dictionary<IPAddress, (IPEndPoint EndPoint, bool Multicast)> endPointCache = [];
     private readonly Dictionary<ushort, IPEndPoint> universeMulticastEndpoints = [];
+    private bool listenDiscoveryMulticastGroup = false;
 
     public SACNClient(
         Guid senderId,
@@ -500,8 +501,28 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         if (this.listenSocket == null)
             throw new ArgumentNullException();
 
-        // Join group
-        var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
-        this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+        if (!this.listenDiscoveryMulticastGroup)
+        {
+            // Join group
+            var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
+            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+
+            this.listenDiscoveryMulticastGroup = true;
+        }
+    }
+
+    public void DropDiscoveryMulticastGroup()
+    {
+        if (this.listenSocket == null)
+            throw new ArgumentNullException();
+
+        if (this.listenDiscoveryMulticastGroup)
+        {
+            // Leave group
+            var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
+            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+
+            this.listenDiscoveryMulticastGroup = false;
+        }
     }
 }
