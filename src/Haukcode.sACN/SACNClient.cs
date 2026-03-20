@@ -288,6 +288,52 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         packet.WriteToBuffer);
     }
 
+    /// <summary>
+    /// Send packet immediately, bypassing the send queue
+    /// </summary>
+    /// <param name="universeId">Universe Id</param>
+    /// <param name="destination">Destination</param>
+    /// <param name="packet">Packet</param>
+    /// <param name="important">Important</param>
+    public Task SendPacketImmediately(ushort universeId, IPAddress? destination, SACNPacket packet, bool important = false)
+    {
+        IPEndPoint? sendDataDestination = null;
+
+        if (destination != null)
+        {
+            // Specified destination (but could be multicast, so check for that)
+            if (!this.endPointCache.TryGetValue(destination, out var ipEndPointDetails))
+            {
+                ipEndPointDetails = (new IPEndPoint(destination, this.localEndPoint.Port), Haukcode.Network.Utils.IsMulticast(destination));
+                this.endPointCache.Add(destination, ipEndPointDetails);
+            }
+
+            sendDataDestination = ipEndPointDetails.Multicast ? null : ipEndPointDetails.EndPoint;
+        }
+
+        if (sendDataDestination == null)
+        {
+            // Set the destination to the multicast address
+            if (!universeMulticastEndpoints.TryGetValue(universeId, out sendDataDestination))
+            {
+                sendDataDestination = new IPEndPoint(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Port);
+                universeMulticastEndpoints.Add(universeId, sendDataDestination);
+            }
+        }
+
+        return SendPacketImmediately(sendDataDestination, packet, important);
+    }
+
+    public async Task SendPacketImmediately(IPEndPoint destination, SACNPacket packet, bool important = false)
+    {
+        await SendImmediateAsync(
+            allocatePacketLength: packet.Length,
+            important: important,
+            sendDataFactory: () => new SendData(destination),
+            packetWriter: packet.WriteToBuffer);
+
+    }
+
     private byte GetNewSequenceId(ushort universeId)
     {
         lock (this.lockObject)
