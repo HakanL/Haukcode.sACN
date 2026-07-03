@@ -8,6 +8,43 @@ using System.Text;
 
 namespace Haukcode.sACN.Model
 {
+    // Interns the fixed-width source-name field so a stable sender doesn't allocate a fresh
+    // string on every received packet (up to ~4,000/sec at 100 universes). Source names are
+    // few and rarely change, so a small bounded cache with a linear scan is ample. Guarded by
+    // a lock because parsing may run on more than one client's receive thread.
+    internal static class SourceNameInterner
+    {
+        private const int MaxEntries = 32;
+        private static readonly object gate = new object();
+        private static readonly List<(byte[] Bytes, string Value)> cache = new List<(byte[] Bytes, string Value)>();
+
+        public static string Read(Haukcode.Network.BigEndianBinaryReader reader, int length)
+        {
+            var field = reader.ReadSlice(length).Span;
+            int terminator = field.IndexOf((byte)0);
+            var name = terminator == -1 ? field : field.Slice(0, terminator);
+
+            lock (gate)
+            {
+                foreach (var entry in cache)
+                {
+                    if (name.SequenceEqual(entry.Bytes))
+                        return entry.Value;
+                }
+
+                byte[] bytes = name.ToArray();
+                string value = Encoding.UTF8.GetString(bytes);
+
+                if (cache.Count >= MaxEntries)
+                    cache.Clear();
+
+                cache.Add((bytes, value));
+
+                return value;
+            }
+        }
+    }
+
     public class DataFramingLayer : FramingLayer
     {
         public const int SourceNameLength = 64;
@@ -69,7 +106,7 @@ namespace Haukcode.sACN.Model
 
             int vector = reader.ReadInt32();
             Debug.Assert(vector == VECTOR_E131_DATA_PACKET);
-            string sourceName = reader.ReadString(64);
+            string sourceName = SourceNameInterner.Read(reader, SourceNameLength);
             byte priority = reader.ReadByte();
             ushort syncAddress = reader.ReadUInt16();
             byte sequenceID = reader.ReadByte();
