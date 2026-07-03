@@ -402,9 +402,12 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         }
     }
 
-    protected override ValueTask<int> SendPacketAsync(SendData sendData, ReadOnlyMemory<byte> payload)
+    protected override int SendPacket(SendData sendData, ReadOnlyMemory<byte> payload)
     {
-        return this.sendSocket.SendToAsync(payload, SocketFlags.None, sendData.Destination!);
+        if (!MemoryMarshal.TryGetArray(payload, out var segment))
+            throw new InvalidOperationException("Expected an array-backed send buffer");
+
+        return this.sendSocket.SendTo(segment.Array!, segment.Offset, segment.Count, SocketFlags.None, sendData.Destination!);
     }
 
     protected override int ReceiveData(Memory<byte> memory, out IPEndPoint? remoteEndPoint, out IPAddress? destinationAddress)
