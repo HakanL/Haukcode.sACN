@@ -279,7 +279,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             }
         });
 
-        return QueuePacketForSending(syncAddress, address, packet, true);
+        return QueueSyncPacketForSending(syncAddress, address, packet);
     }
 
     /// <summary>
@@ -311,7 +311,32 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// <param name="important">Important</param>
     private async Task QueuePacketForSending(ushort universeId, IPAddress? destination, SACNPacket packet, bool important)
     {
-        await base.QueuePacket(packet.Length, important, () =>
+        await base.QueuePacket(packet.Length, important, CreateSendData(universeId, destination), packet.WriteToBuffer,
+            // Shard by universe: every packet for a universe goes out on the same thread and socket,
+            // so its sequence numbers stay monotonic on the wire. Applies equally to unicast — the
+            // key is the universe, not the destination.
+            shardKey: universeId);
+    }
+
+    /// <summary>
+    /// Queue a sync packet. It must follow every DMX frame it synchronizes, so with more than one
+    /// sender shard it goes out as an ordering barrier — otherwise it could be transmitted while a
+    /// slower shard still had that frame's DMX pending, silently breaking synchronization.
+    /// </summary>
+    private async Task QueueSyncPacketForSending(ushort syncAddress, IPAddress? destination, SACNPacket packet)
+    {
+        await base.QueueBarrierPacket(packet.Length, CreateSendData(syncAddress, destination), packet.WriteToBuffer,
+            shardKey: syncAddress);
+    }
+
+    /// <summary>
+    /// Factory for the send-data object: resolves the destination (multicast group for the universe
+    /// unless an explicit unicast address was given) and rents a pooled object where possible.
+    /// Runs on the single queue-writer thread, which is what makes the caches below safe.
+    /// </summary>
+    private Func<SendData> CreateSendData(ushort universeId, IPAddress? destination)
+    {
+        return () =>
         {
             IPEndPoint? sendDataDestination = null;
 
@@ -350,11 +375,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
             // Pool empty (startup only) — the constructor serializes the destination itself.
             return new SendData(sendDataDestination);
-        },
-        packet.WriteToBuffer,
-        // Shard by universe: every packet for a universe goes out on the same thread and socket,
-        // so its sequence numbers stay monotonic on the wire.
-        universeId);
+        };
     }
 
     /// <summary>
