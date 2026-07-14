@@ -30,6 +30,12 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         }
     }
 
+    // Reused across SendDmxData calls instead of allocating a fresh SACNDataPacket (+ its
+    // RootLayer/DataFramingLayer/DMPLayer) per universe per tick. Reconfigured in place by
+    // Update() and serialized synchronously inside QueuePacket before the next call, so a
+    // single instance is safe on the single-threaded send path (the send queue is SingleWriter).
+    private readonly SACNDataPacket scratchDataPacket;
+
     public const int DefaultPort = 5568;
     public const int ReceiveBufferSize = 680 * 20 * 200;
     public static readonly IPAddress UniverseDiscoveryMulticastAddress = IPAddress.Parse("239.255.250.133");
@@ -61,6 +67,8 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             throw new ArgumentException("Invalid sender Id", nameof(senderId));
         SenderId = senderId;
         SenderName = senderName;
+
+        this.scratchDataPacket = new SACNDataPacket(1, senderName, senderId, 0, ReadOnlyMemory<byte>.Empty, 100);
 
         if (port <= 0)
             throw new ArgumentException("Invalid port", nameof(port));
@@ -210,19 +218,11 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
         byte sequenceId = GetNewSequenceId(universeId);
 
-        var packet = new SACNDataPacket(universeId, SenderName, SenderId, sequenceId, dmxData, priority, syncAddress, startCode);
+        // Reconfigure the reused scratch packet in place instead of allocating a new one
+        // (and its three nested layers) for every packet on the hot send path.
+        this.scratchDataPacket.Update(universeId, sequenceId, dmxData, priority, syncAddress, startCode, terminate);
 
-        if (terminate)
-        {
-            packet.DataFramingLayer.Options.StreamTerminated = true;
-        }
-
-        if (syncAddress != 0)
-        {
-            packet.DataFramingLayer.Options.ForceSynchronization = true;
-        }
-
-        return QueuePacketForSending(universeId, address, packet, important);
+        return QueuePacketForSending(universeId, address, this.scratchDataPacket, important);
     }
 
     /// <summary>
