@@ -305,6 +305,16 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
                 }
             }
 
+            // Reuse a spent send-data object returned by the sender instead of allocating a new
+            // one for every packet on the hot path. Every field is rewritten below.
+            var pooledSendData = RentSendData();
+            if (pooledSendData != null)
+            {
+                pooledSendData.Destination = sendDataDestination;
+
+                return pooledSendData;
+            }
+
             return new SendData(sendDataDestination);
         },
         packet.WriteToBuffer);
