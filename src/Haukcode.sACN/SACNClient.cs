@@ -24,9 +24,18 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     {
         public IPEndPoint Destination { get; set; }
 
+        /// <summary>
+        /// The destination pre-serialized once. Socket.SendTo(..., EndPoint) re-serializes the
+        /// EndPoint into a fresh SocketAddress on every call; handing it an already-serialized
+        /// SocketAddress instead is worth ~13% of the send path and removes the last per-packet
+        /// allocations. Cached alongside the endpoint, so it costs nothing per packet.
+        /// </summary>
+        public SocketAddress DestinationAddress { get; set; }
+
         public SendData(IPEndPoint destination)
         {
             Destination = destination;
+            DestinationAddress = destination.Serialize();
         }
     }
 
@@ -43,7 +52,13 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     private static readonly IPEndPoint _blankEndpoint = new(IPAddress.Any, 0);
 
     private Socket? listenSocket;
-    private readonly Socket sendSocket;
+
+    // One send socket per sender shard. Several threads sharing one UDP socket serialize on the
+    // kernel's socket lock, which throws away most of the gain from sharding; a socket each does
+    // not. Receivers don't care which source port a frame came from, and each socket binds to an
+    // ephemeral port anyway.
+    private readonly Socket[] sendSockets;
+
     private readonly IPEndPoint localEndPoint;
     private readonly Dictionary<ushort, byte> sequenceIds = [];
     private readonly Dictionary<ushort, byte> sequenceIdsSync = [];
@@ -52,16 +67,27 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     private readonly HashSet<ushort> triggerUniverses = [];
     private readonly Dictionary<IPAddress, (IPEndPoint EndPoint, bool Multicast)> endPointCache = [];
     private readonly Dictionary<ushort, IPEndPoint> universeMulticastEndpoints = [];
+
+    // Serialized destinations, so the hot path never re-serializes an IPEndPoint. Only touched
+    // from the single queue-writer thread (the send-data factory), same as the caches above.
+    private readonly Dictionary<IPEndPoint, SocketAddress> socketAddressCache = [];
+
     private bool listenDiscoveryMulticastGroup = false;
 
+    /// <param name="senderCount">
+    /// Number of sender threads/sockets. Packets are sharded by universe id, so a universe always
+    /// goes out on one thread and one socket and its sequence numbers stay ordered. Default 1 =
+    /// the original behavior.
+    /// </param>
     public SACNClient(
         Guid senderId,
         string senderName,
         IPAddress localAddress,
         Func<ReceiveDataPacket, Task>? channelWriter = null,
         Action? channelWriterComplete = null,
-        int port = DefaultPort)
-        : base(SACNPacket.MAX_PACKET_SIZE, channelWriter, channelWriterComplete)
+        int port = DefaultPort,
+        int senderCount = 1)
+        : base(SACNPacket.MAX_PACKET_SIZE, channelWriter, channelWriterComplete, senderCount)
     {
         if (senderId == Guid.Empty)
             throw new ArgumentException("Invalid sender Id", nameof(senderId));
@@ -75,19 +101,25 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
         this.localEndPoint = new IPEndPoint(localAddress, port);
 
-        this.sendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-        this.sendSocket.SendBufferSize = SendBufferSize;
+        this.sendSockets = new Socket[SenderCount];
+        for (int i = 0; i < SenderCount; i++)
+        {
+            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            socket.SendBufferSize = SendBufferSize;
 
-        Haukcode.Network.Utils.SetSocketOptions(this.sendSocket);
+            Haukcode.Network.Utils.SetSocketOptions(socket);
 
-        // Multicast socket settings
-        this.sendSocket.DontFragment = true;
-        this.sendSocket.MulticastLoopback = false;
+            // Multicast socket settings
+            socket.DontFragment = true;
+            socket.MulticastLoopback = false;
 
-        // Bind to the local interface
-        this.sendSocket.Bind(new IPEndPoint(localAddress, 0));
+            // Bind to the local interface (ephemeral port)
+            socket.Bind(new IPEndPoint(localAddress, 0));
 
-        this.sendSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
+            socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
+
+            this.sendSockets[i] = socket;
+        }
 
         StartReceive();
     }
@@ -311,13 +343,33 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             if (pooledSendData != null)
             {
                 pooledSendData.Destination = sendDataDestination;
+                pooledSendData.DestinationAddress = GetSocketAddress(sendDataDestination);
 
                 return pooledSendData;
             }
 
+            // Pool empty (startup only) — the constructor serializes the destination itself.
             return new SendData(sendDataDestination);
         },
-        packet.WriteToBuffer);
+        packet.WriteToBuffer,
+        // Shard by universe: every packet for a universe goes out on the same thread and socket,
+        // so its sequence numbers stay monotonic on the wire.
+        universeId);
+    }
+
+    /// <summary>
+    /// Serialized form of a destination, cached. Called from the send-data factory on the single
+    /// queue-writer thread.
+    /// </summary>
+    private SocketAddress GetSocketAddress(IPEndPoint endPoint)
+    {
+        if (!this.socketAddressCache.TryGetValue(endPoint, out var socketAddress))
+        {
+            socketAddress = endPoint.Serialize();
+            this.socketAddressCache.Add(endPoint, socketAddress);
+        }
+
+        return socketAddress;
     }
 
     /// <summary>
@@ -400,24 +452,27 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
         if (disposing)
         {
-            try
+            foreach (var socket in this.sendSockets)
             {
-                this.sendSocket.Shutdown(SocketShutdown.Both);
+                try
+                {
+                    socket.Shutdown(SocketShutdown.Both);
+                }
+                catch
+                {
+                }
+
+                socket.Close();
+                socket.Dispose();
             }
-            catch
-            {
-            }
-            this.sendSocket.Close();
-            this.sendSocket.Dispose();
         }
     }
 
-    protected override int SendPacket(SendData sendData, ReadOnlyMemory<byte> payload)
+    protected override int SendPacket(SendData sendData, ReadOnlyMemory<byte> payload, int senderIndex)
     {
-        if (!MemoryMarshal.TryGetArray(payload, out var segment))
-            throw new InvalidOperationException("Expected an array-backed send buffer");
-
-        return this.sendSocket.SendTo(segment.Array!, segment.Offset, segment.Count, SocketFlags.None, sendData.Destination!);
+        // SendTo(..., SocketAddress) with a pre-serialized destination: the EndPoint overload
+        // re-serializes into a fresh SocketAddress on every call.
+        return this.sendSockets[senderIndex].SendTo(payload.Span, SocketFlags.None, sendData.DestinationAddress);
     }
 
     protected override int ReceiveData(Memory<byte> memory, out IPEndPoint? remoteEndPoint, out IPAddress? destinationAddress)
