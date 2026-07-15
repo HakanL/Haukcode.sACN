@@ -53,6 +53,13 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     private Socket? listenSocket;
 
+    // Linux only: holds the IGMP memberships so the listen socket's kernel membership list
+    // stays empty on the per-packet delivery path (see InitializeReceiveSocket). Null on
+    // other platforms, where memberships live on the listen socket itself.
+    private Socket? membershipSocket;
+
+    private Socket MembershipSocket => this.membershipSocket ?? this.listenSocket!;
+
     // One send socket per sender shard. Several threads sharing one UDP socket serialize on the
     // kernel's socket lock, which throws away most of the gain from sharding; a socket each does
     // not. Receivers don't care which source port a frame came from, and each socket binds to an
@@ -150,7 +157,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         {
             // Join group
             var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
         }
 
         // Add to the list of universes we have joined
@@ -169,7 +176,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         {
             // Drop group
             var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
         }
 
         // Remove from the list of universes we have joined
@@ -205,7 +212,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         {
             // Join group
             var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
         }
 
         this.triggerUniverses.Add(universeId);
@@ -224,7 +231,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         {
             // Drop group
             var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
         }
 
         // Remove from the list of universes we have joined
@@ -590,6 +597,20 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
         // Only join local LAN group
         this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            // On Linux the kernel walks the receiving socket's multicast membership list
+            // linearly for every delivered datagram (ip_mc_sf_allow), so a recorder joined to
+            // hundreds of universes pays hundreds of list-node traversals per packet — measured
+            // as several percent packet loss at 24k pkt/s where the same rate unicast was clean.
+            // Holding the memberships on a separate socket keeps the busy listen socket's list
+            // EMPTY: with an empty list the delivery check short-circuits to IP_MULTICAST_ALL
+            // (default on), which delivers every group any socket on the host has joined to our
+            // port-bound listen socket. Windows delivers strictly by the receiving socket's own
+            // memberships, so there this stays null and joins go to the listen socket as before.
+            this.membershipSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        }
     }
 
     protected override void DisposeReceiveSocket()
@@ -605,6 +626,9 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         this.listenSocket?.Close();
         this.listenSocket?.Dispose();
         this.listenSocket = null;
+
+        this.membershipSocket?.Dispose();
+        this.membershipSocket = null;
     }
 
     public void JoinDiscoveryMulticastGroup()
@@ -616,7 +640,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         {
             // Join group
             var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
-            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
 
             this.listenDiscoveryMulticastGroup = true;
         }
@@ -631,7 +655,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         {
             // Leave group
             var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
-            this.listenSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
 
             this.listenDiscoveryMulticastGroup = false;
         }
