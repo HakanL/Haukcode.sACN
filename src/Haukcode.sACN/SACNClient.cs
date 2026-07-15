@@ -100,6 +100,8 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         SenderName = senderName;
 
         this.scratchDataPacket = new SACNDataPacket(1, senderName, senderId, 0, ReadOnlyMemory<byte>.Empty, 100);
+        this.scratchPacketWriter = this.scratchDataPacket.WriteToBuffer;
+        this.pendingSendDataFactory = BuildPendingSendData;
 
         if (port <= 0)
             throw new ArgumentException("Invalid port", nameof(port));
@@ -314,9 +316,29 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// <param name="destination">Destination</param>
     /// <param name="packet">Packet</param>
     /// <param name="important">Important</param>
+    // Arguments for the cached send-data factory below. QueuePacket invokes the factory and the
+    // packet writer synchronously before its first await, and SendDmxData runs on the single
+    // queue-writer thread (the same assumption the non-locked caches here already rest on), so
+    // passing the per-packet arguments through fields lets one cached delegate replace a fresh
+    // closure per packet. The sync/barrier path keeps its closure: QueueBarrierPacket invokes
+    // the factory several times with possible awaits in between, where fields could be
+    // overwritten mid-barrier — and sync packets are rare enough not to matter.
+    private ushort pendingUniverseId;
+    private IPAddress? pendingDestination;
+    private readonly Func<SendData> pendingSendDataFactory;
+    private readonly Func<Memory<byte>, int> scratchPacketWriter;
+
+    private SendData BuildPendingSendData() => BuildSendData(this.pendingUniverseId, this.pendingDestination);
+
     private async Task QueuePacketForSending(ushort universeId, IPAddress? destination, SACNPacket packet, bool important)
     {
-        await base.QueuePacket(packet.Length, important, CreateSendData(universeId, destination), packet.WriteToBuffer,
+        this.pendingUniverseId = universeId;
+        this.pendingDestination = destination;
+
+        await base.QueuePacket(packet.Length, important, this.pendingSendDataFactory,
+            // The DMX hot path always sends the reused scratch packet, so its writer delegate is
+            // cached too; anything else (rare) pays the method-group allocation.
+            ReferenceEquals(packet, this.scratchDataPacket) ? this.scratchPacketWriter : packet.WriteToBuffer,
             // Shard by universe: every packet for a universe goes out on the same thread and socket,
             // so its sequence numbers stay monotonic on the wire. Applies equally to unicast — the
             // key is the universe, not the destination.
@@ -341,7 +363,11 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// </summary>
     private Func<SendData> CreateSendData(ushort universeId, IPAddress? destination)
     {
-        return () =>
+        return () => BuildSendData(universeId, destination);
+    }
+
+    private SendData BuildSendData(ushort universeId, IPAddress? destination)
+    {
         {
             IPEndPoint? sendDataDestination = null;
 
@@ -380,7 +406,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
             // Pool empty (startup only) — the constructor serializes the destination itself.
             return new SendData(sendDataDestination);
-        };
+        }
     }
 
     /// <summary>

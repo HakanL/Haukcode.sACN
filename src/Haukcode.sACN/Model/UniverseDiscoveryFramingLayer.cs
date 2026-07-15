@@ -39,7 +39,7 @@ namespace Haukcode.sACN.Model
 
         public override int WriteToBuffer(Memory<byte> buffer)
         {
-            var writer = new BigEndianBinaryWriter(buffer);
+            var writer = new SpanBinaryWriter(buffer.Span);
 
             ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
             writer.WriteUInt16(flagsAndFramingLength);

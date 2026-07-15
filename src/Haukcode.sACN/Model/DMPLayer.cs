@@ -25,7 +25,7 @@ namespace Haukcode.sACN.Model
 
         public int WriteToBuffer(Memory<byte> buffer)
         {
-            var writer = new BigEndianBinaryWriter(buffer);
+            var writer = new SpanBinaryWriter(buffer.Span);
 
             ushort flagsAndDMPLength = (ushort)(SACNDataPacket.FLAGS | (ushort)Length);
 
@@ -36,7 +36,7 @@ namespace Haukcode.sACN.Model
             writer.WriteInt16(ADDRESS_INCREMENT);
             writer.WriteInt16((short)(Data.Length + 1));
             writer.WriteByte(StartCode);
-            writer.WriteBytes(Data);
+            writer.WriteBytes(Data.Span);
 
             return writer.BytesWritten;
         }

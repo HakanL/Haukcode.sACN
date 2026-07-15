@@ -55,7 +55,7 @@ namespace Haukcode.sACN.Model
 
         public int WriteToBuffer(Memory<byte> buffer)
         {
-            var writer = new BigEndianBinaryWriter(buffer);
+            var writer = new SpanBinaryWriter(buffer.Span);
 
             writer.WriteInt16(PREAMBLE_LENGTH);
             writer.WriteInt16(POSTAMBLE_LENGTH);
@@ -65,7 +65,7 @@ namespace Haukcode.sACN.Model
             writer.WriteInt32(FramingLayer.RootVector);
             writer.WriteGuid(UUID);
 
-            return writer.BytesWritten + FramingLayer.WriteToBuffer(writer.Memory);
+            return writer.BytesWritten + FramingLayer.WriteToBuffer(buffer.Slice(writer.BytesWritten));
         }
 
         internal static RootLayer Parse(BigEndianBinaryReader reader)

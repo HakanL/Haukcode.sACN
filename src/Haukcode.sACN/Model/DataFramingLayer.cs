@@ -82,7 +82,7 @@ namespace Haukcode.sACN.Model
 
         public override int WriteToBuffer(Memory<byte> buffer)
         {
-            var writer = new BigEndianBinaryWriter(buffer);
+            var writer = new SpanBinaryWriter(buffer.Span);
 
             ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
             writer.WriteUInt16(flagsAndFramingLength);
@@ -94,7 +94,7 @@ namespace Haukcode.sACN.Model
             writer.WriteByte(Options.ToByte());
             writer.WriteUInt16(UniverseId);
 
-            return writer.BytesWritten + DMPLayer.WriteToBuffer(writer.Memory);
+            return writer.BytesWritten + DMPLayer.WriteToBuffer(buffer.Slice(writer.BytesWritten));
         }
 
         internal static DataFramingLayer Parse(BigEndianBinaryReader reader)
