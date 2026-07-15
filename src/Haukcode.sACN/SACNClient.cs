@@ -60,6 +60,18 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     private Socket MembershipSocket => this.membershipSocket ?? this.listenSocket!;
 
+    // Kernel receive timestamping (Linux): packets are stamped on arrival in the network
+    // stack instead of when user space reads them, so socket-buffer waits (GC pauses, busy
+    // receive loop) no longer distort recorded timing. Null = portable path with user-space
+    // timestamps.
+    private LinuxReceiveTimestamping? timestampedReceiver;
+
+    /// <summary>
+    /// True when packets are being stamped by the kernel on arrival (Linux, SO_TIMESTAMPNS)
+    /// rather than by user space when the receive loop reads them.
+    /// </summary>
+    public bool KernelReceiveTimestampsActive => this.timestampedReceiver != null;
+
     // One send socket per sender shard. Several threads sharing one UDP socket serialize on the
     // kernel's socket lock, which throws away most of the gain from sharding; a socket each does
     // not. Receivers don't care which source port a frame came from, and each socket binds to an
@@ -522,6 +534,14 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         if (!MemoryMarshal.TryGetArray<byte>(memory, out var segment))
             throw new InvalidOperationException("Expected an array-backed receive buffer");
 
+        if (this.timestampedReceiver != null)
+        {
+            int received = this.timestampedReceiver.Receive(segment, out remoteEndPoint, out destinationAddress, out long kernelTimestampNS);
+            KernelReceiveTimestampNS = kernelTimestampNS;
+
+            return received;
+        }
+
         var socketFlags = SocketFlags.None;
         EndPoint endPoint = _blankEndpoint;
         int receivedBytes = this.listenSocket!.ReceiveMessageFrom(segment.Array!, segment.Offset, segment.Count, ref socketFlags, ref endPoint, out IPPacketInformation packetInformation);
@@ -611,6 +631,10 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             // memberships, so there this stays null and joins go to the listen socket as before.
             this.membershipSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         }
+
+        // Kernel arrival timestamps where the platform offers them (currently Linux); falls
+        // back to user-space timestamping in the receive loop everywhere else
+        this.timestampedReceiver = LinuxReceiveTimestamping.TryCreate(this.listenSocket);
     }
 
     protected override void DisposeReceiveSocket()
@@ -629,6 +653,8 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
         this.membershipSocket?.Dispose();
         this.membershipSocket = null;
+
+        this.timestampedReceiver = null;
     }
 
     public void JoinDiscoveryMulticastGroup()
