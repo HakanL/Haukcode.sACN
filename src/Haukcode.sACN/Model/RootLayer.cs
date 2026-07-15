@@ -70,6 +70,16 @@ namespace Haukcode.sACN.Model
 
         internal static RootLayer Parse(BigEndianBinaryReader reader)
         {
+            return Parse(reader, scratchRootLayer: null);
+        }
+
+        /// <summary>
+        /// Parse, filling <paramref name="scratchRootLayer"/> in place when the packet is a DATA
+        /// packet and the scratch carries a DataFramingLayer (see SACNPacket.Parse). Other packet
+        /// types allocate as before.
+        /// </summary>
+        internal static RootLayer Parse(BigEndianBinaryReader reader, RootLayer? scratchRootLayer)
+        {
             short preambleLength = reader.ReadInt16();
             if (preambleLength != PREAMBLE_LENGTH)
                 throw new InvalidDataException("preambleLength != PREAMBLE_LENGTH");
@@ -93,6 +103,14 @@ namespace Haukcode.sACN.Model
             switch (vector)
             {
                 case VECTOR_ROOT_E131_DATA:
+                    if (scratchRootLayer?.FramingLayer is DataFramingLayer scratchFramingLayer)
+                    {
+                        scratchRootLayer.UUID = cid;
+                        DataFramingLayer.Parse(reader, scratchFramingLayer);
+
+                        return scratchRootLayer;
+                    }
+
                     return new RootLayer
                     {
                         UUID = cid,

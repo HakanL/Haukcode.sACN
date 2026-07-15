@@ -43,6 +43,15 @@ namespace Haukcode.sACN.Model
 
         internal static DMPLayer Parse(BigEndianBinaryReader reader)
         {
+            return Parse(reader, scratchLayer: null);
+        }
+
+        /// <summary>
+        /// Parse, filling <paramref name="scratchLayer"/> in place when provided. Data is a slice
+        /// of the reader's buffer either way.
+        /// </summary>
+        internal static DMPLayer Parse(BigEndianBinaryReader reader, DMPLayer? scratchLayer)
+        {
             short flagsAndDMPLength = reader.ReadInt16();
             byte vector3 = reader.ReadByte();
             Debug.Assert(vector3 == DMP_VECTOR);
@@ -55,18 +64,29 @@ namespace Haukcode.sACN.Model
             short propertyValueCount = reader.ReadInt16();
 
             byte startCode = reader.ReadByte();
+
+            ReadOnlyMemory<byte> data;
             if (propertyValueCount > 0)
             {
-                var properties = reader.ReadSlice(propertyValueCount - 1);
-
-                var dmpLayer = new DMPLayer(properties, startCode);
-
-                return dmpLayer;
+                data = reader.ReadSlice(propertyValueCount - 1);
             }
             else
             {
-                return new DMPLayer(Array.Empty<byte>());
+                // Preserved quirk of the allocating path: an empty DMP layer reports start code 0
+                // regardless of the byte on the wire.
+                data = Array.Empty<byte>();
+                startCode = 0;
             }
+
+            if (scratchLayer != null)
+            {
+                scratchLayer.Data = data;
+                scratchLayer.StartCode = startCode;
+
+                return scratchLayer;
+            }
+
+            return new DMPLayer(data, startCode);
         }
     }
 }

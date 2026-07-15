@@ -32,8 +32,25 @@ namespace Haukcode.sACN.Model
 
         public static SACNPacket Parse(ReadOnlyMemory<byte> inputBuffer)
         {
+            return Parse(inputBuffer, scratchDataPacket: null);
+        }
+
+        /// <summary>
+        /// Parse a packet, reusing <paramref name="scratchDataPacket"/> (and its nested layers)
+        /// for DATA packets instead of allocating a fresh object graph per packet — the read-side
+        /// mirror of SACNDataPacket.Update on the send path. When the input is a data packet the
+        /// scratch instance is returned with every mutable field rewritten; its DMPLayer.Data is
+        /// a slice of <paramref name="inputBuffer"/>, so both are only valid until the caller's
+        /// next parse or buffer reuse. Non-data packets (sync, discovery — rare) allocate as
+        /// before. Pass null to always allocate.
+        /// </summary>
+        public static SACNPacket Parse(ReadOnlyMemory<byte> inputBuffer, SACNDataPacket? scratchDataPacket)
+        {
             var reader = new BigEndianBinaryReader(inputBuffer);
-            var rootLayer = RootLayer.Parse(reader);
+            var rootLayer = RootLayer.Parse(reader, scratchDataPacket?.RootLayer);
+
+            if (scratchDataPacket != null && ReferenceEquals(rootLayer, scratchDataPacket.RootLayer))
+                return scratchDataPacket;
 
             if (rootLayer.FramingLayer is DataFramingLayer)
                 return new SACNDataPacket(rootLayer);

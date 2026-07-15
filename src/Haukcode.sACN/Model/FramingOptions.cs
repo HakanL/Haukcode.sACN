@@ -23,21 +23,20 @@ namespace Haukcode.sACN.Model
         public static FramingOptions Parse(byte optionsByte)
         {
             var options = new FramingOptions();
-
-            if ((optionsByte & FORCE_SYNCHRONIZATION) != 0)
-            {
-                options.ForceSynchronization = true;
-            }
-            if ((optionsByte & STREAM_TERMINATED) != 0)
-            {
-                options.StreamTerminated = true;
-            }
-            if ((optionsByte & PREVIEW_DATA) != 0)
-            {
-                options.PreviewData = true;
-            }
+            options.SetFrom(optionsByte);
 
             return options;
+        }
+
+        /// <summary>
+        /// Overwrite all flags from the wire byte, so a reused instance carries no state from a
+        /// previous packet.
+        /// </summary>
+        public void SetFrom(byte optionsByte)
+        {
+            ForceSynchronization = (optionsByte & FORCE_SYNCHRONIZATION) != 0;
+            StreamTerminated = (optionsByte & STREAM_TERMINATED) != 0;
+            PreviewData = (optionsByte & PREVIEW_DATA) != 0;
         }
 
         public byte ToByte()

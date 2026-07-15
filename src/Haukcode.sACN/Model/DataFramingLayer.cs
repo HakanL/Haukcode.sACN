@@ -99,6 +99,16 @@ namespace Haukcode.sACN.Model
 
         internal static DataFramingLayer Parse(BigEndianBinaryReader reader)
         {
+            return Parse(reader, scratchFramingLayer: null);
+        }
+
+        /// <summary>
+        /// Parse, filling <paramref name="scratchFramingLayer"/> (and its DMPLayer/Options) in
+        /// place when provided; every mutable field is rewritten so no state leaks between
+        /// packets. SourceName strings come from the interner either way.
+        /// </summary>
+        internal static DataFramingLayer Parse(BigEndianBinaryReader reader, DataFramingLayer? scratchFramingLayer)
+        {
             ushort flagsAndFramingLength = reader.ReadUInt16();
             ushort flags = (ushort)(flagsAndFramingLength & SACNPacket.FIRST_FOUR_BITS_MASK);
             Debug.Assert(flags == SACNPacket.FLAGS);
@@ -111,16 +121,28 @@ namespace Haukcode.sACN.Model
             ushort syncAddress = reader.ReadUInt16();
             byte sequenceID = reader.ReadByte();
             byte optionsByte = reader.ReadByte();
-            var options = FramingOptions.Parse(optionsByte);
 
             ushort universeID = reader.ReadUInt16();
+
+            if (scratchFramingLayer != null)
+            {
+                scratchFramingLayer.SequenceId = sequenceID;
+                scratchFramingLayer.SourceName = sourceName;
+                DMPLayer.Parse(reader, scratchFramingLayer.DMPLayer);
+                scratchFramingLayer.Options.SetFrom(optionsByte);
+                scratchFramingLayer.UniverseId = universeID;
+                scratchFramingLayer.Priority = priority;
+                scratchFramingLayer.SyncAddress = syncAddress;
+
+                return scratchFramingLayer;
+            }
 
             var framingLayer = new DataFramingLayer
             {
                 SequenceId = sequenceID,
                 SourceName = sourceName,
                 DMPLayer = DMPLayer.Parse(reader),
-                Options = options,
+                Options = FramingOptions.Parse(optionsByte),
                 UniverseId = universeID,
                 Priority = priority,
                 SyncAddress = syncAddress
