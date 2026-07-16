@@ -60,15 +60,16 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     private Socket MembershipSocket => this.membershipSocket ?? this.listenSocket!;
 
-    // Kernel receive timestamping (Linux): packets are stamped on arrival in the network
-    // stack instead of when user space reads them, so socket-buffer waits (GC pauses, busy
+    // Kernel receive timestamping: packets are stamped on arrival in the network stack
+    // instead of when user space reads them, so socket-buffer waits (GC pauses, busy
     // receive loop) no longer distort recorded timing. Null = portable path with user-space
     // timestamps.
-    private LinuxReceiveTimestamping? timestampedReceiver;
+    private IReceiveTimestamping? timestampedReceiver;
 
     /// <summary>
-    /// True when packets are being stamped by the kernel on arrival (Linux, SO_TIMESTAMPNS)
-    /// rather than by user space when the receive loop reads them.
+    /// True when packets are being stamped by the kernel on arrival (Linux SO_TIMESTAMPNS,
+    /// Windows SIO_TIMESTAMPING, macOS SO_TIMESTAMP) rather than by user space when the
+    /// receive loop reads them.
     /// </summary>
     public bool KernelReceiveTimestampsActive => this.timestampedReceiver != null;
 
@@ -632,9 +633,10 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             this.membershipSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         }
 
-        // Kernel arrival timestamps where the platform offers them (currently Linux); falls
-        // back to user-space timestamping in the receive loop everywhere else
-        this.timestampedReceiver = LinuxReceiveTimestamping.TryCreate(this.listenSocket);
+        // Kernel arrival timestamps where the platform offers them (Linux, Windows when the
+        // adapter has software timestamping enabled, macOS); falls back to user-space
+        // timestamping in the receive loop everywhere else
+        this.timestampedReceiver = ReceiveTimestamping.TryCreate(this.listenSocket);
     }
 
     protected override void DisposeReceiveSocket()
