@@ -73,6 +73,14 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// </summary>
     public bool KernelReceiveTimestampsActive => this.timestampedReceiver != null;
 
+    /// <summary>
+    /// True once at least one received packet actually carried a kernel timestamp. On
+    /// Windows the socket option can be enabled while the adapter driver never stamps
+    /// (software timestamping off, the default) — this is the after-the-fact truth,
+    /// where Active only means "requested".
+    /// </summary>
+    public bool KernelReceiveTimestampsObserved => this.timestampedReceiver?.KernelTimestampsObserved == true;
+
     // One send socket per sender shard. Several threads sharing one UDP socket serialize on the
     // kernel's socket lock, which throws away most of the gain from sharding; a socket each does
     // not. Receivers don't care which source port a frame came from, and each socket binds to an
