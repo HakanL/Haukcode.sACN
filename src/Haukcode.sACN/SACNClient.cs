@@ -206,7 +206,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     public void DropAllTriggerUniverses()
     {
-        foreach (ushort universeId in this.triggerUniverses)
+        foreach (ushort universeId in this.triggerUniverses.ToArray())
         {
             DropDMXUniverseForTrigger(universeId);
         }
@@ -214,7 +214,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     public void DropAllInputUniverses()
     {
-        foreach (ushort universeId in this.dmxUniverses)
+        foreach (ushort universeId in this.dmxUniverses.ToArray())
         {
             DropDMXUniverse(universeId);
         }
