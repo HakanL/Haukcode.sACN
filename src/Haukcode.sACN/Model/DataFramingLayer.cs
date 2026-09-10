@@ -16,7 +16,11 @@ namespace Haukcode.sACN.Model
     {
         private const int MaxEntries = 32;
         private static readonly object gate = new object();
-        private static readonly List<(byte[] Bytes, string Value)> cache = new List<(byte[] Bytes, string Value)>();
+
+        // Copy-on-write snapshot: readers scan the current array without taking the lock (every
+        // received packet reads a name), writers replace the array under the lock. Entries are
+        // immutable, so a reader holding an old snapshot only ever sees complete entries.
+        private static (byte[] Bytes, string Value)[] cache = Array.Empty<(byte[], string)>();
 
         public static string Read(Haukcode.Network.BigEndianBinaryReader reader, int length)
         {
@@ -24,8 +28,16 @@ namespace Haukcode.sACN.Model
             int terminator = field.IndexOf((byte)0);
             var name = terminator == -1 ? field : field.Slice(0, terminator);
 
+            var snapshot = cache;
+            foreach (var entry in snapshot)
+            {
+                if (name.SequenceEqual(entry.Bytes))
+                    return entry.Value;
+            }
+
             lock (gate)
             {
+                // Re-check under the lock: another thread may have interned it meanwhile
                 foreach (var entry in cache)
                 {
                     if (name.SequenceEqual(entry.Bytes))
@@ -35,10 +47,11 @@ namespace Haukcode.sACN.Model
                 byte[] bytes = name.ToArray();
                 string value = Encoding.UTF8.GetString(bytes);
 
-                if (cache.Count >= MaxEntries)
-                    cache.Clear();
-
-                cache.Add((bytes, value));
+                var current = cache.Length >= MaxEntries ? Array.Empty<(byte[], string)>() : cache;
+                var next = new (byte[] Bytes, string Value)[current.Length + 1];
+                current.CopyTo(next, 0);
+                next[current.Length] = (bytes, value);
+                cache = next;
 
                 return value;
             }

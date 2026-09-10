@@ -45,6 +45,13 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     // single instance is safe on the single-threaded send path (the send queue is SingleWriter).
     private readonly SACNDataPacket scratchDataPacket;
 
+    // Receive-side scratch: the parser fills this packet graph in place for every DATA packet
+    // instead of allocating a packet plus three layers per datagram (36,000/s at 600 universes /
+    // 60 Hz), and the wrapper handed to the channel writer is reused the same way. Both are only
+    // valid until the writer returns, which is the contract Client documents for its buffer too.
+    private readonly SACNDataPacket receiveScratchPacket = new SACNDataPacket(1, string.Empty, Guid.Empty, 0, ReadOnlyMemory<byte>.Empty, 100);
+    private readonly ReceiveDataPacket receiveScratchObject = new ReceiveDataPacket();
+
     public const int DefaultPort = 5568;
     public const int ReceiveBufferSize = 680 * 20 * 200;
     public static readonly IPAddress UniverseDiscoveryMulticastAddress = IPAddress.Parse("239.255.250.133");
@@ -563,28 +570,33 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     protected override ReceiveDataPacket? TryParseObject(ReadOnlyMemory<byte> buffer, double timestampMS, IPEndPoint sourceIP, IPAddress destinationIP)
     {
-        var packet = SACNPacket.Parse(buffer);
+        var packet = SACNPacket.Parse(buffer, this.receiveScratchPacket);
 
-        // Note that we're still using the memory from the pipeline here, the packet is not allocating its own DMX data byte array
+        // Note that we're still using the memory from the receive buffer here, the packet is not allocating its own DMX data byte array
         if (packet != null)
         {
-            if ((packet.FramingLayer as DataFramingLayer)?.Options.StreamTerminated == true)
+            var dataFramingLayer = packet.FramingLayer as DataFramingLayer;
+
+            if (dataFramingLayer?.Options.StreamTerminated == true)
                 // Ignore the terminate packets
                 return null;
 
-            var parsedObject = new ReceiveDataPacket
-            {
-                TimestampMS = timestampMS,
-                Source = sourceIP,
-                Packet = packet
-            };
+            // Data packets land in the scratch graph, so their wrapper can be scratch too. Other
+            // packet types (sync, discovery) are rare and allocated, and get a fresh wrapper so a
+            // subscriber may keep them.
+            var parsedObject = ReferenceEquals(packet, this.receiveScratchPacket) ? this.receiveScratchObject : new ReceiveDataPacket();
+            parsedObject.TimestampMS = timestampMS;
+            parsedObject.Source = sourceIP;
+            parsedObject.Packet = packet;
+            parsedObject.SubscribeMode = SubscribeModes.None;
 
-            ushort? universeId = (packet.FramingLayer as DataFramingLayer)?.UniverseId;
-            if (universeId.HasValue)
+            if (dataFramingLayer != null)
             {
-                if (this.dmxUniverses.Contains(universeId.Value))
+                ushort universeId = dataFramingLayer.UniverseId;
+
+                if (this.dmxUniverses.Contains(universeId))
                     parsedObject.SubscribeMode |= SubscribeModes.DmxData;
-                if (this.triggerUniverses.Contains(universeId.Value))
+                if (this.triggerUniverses.Contains(universeId))
                     parsedObject.SubscribeMode |= SubscribeModes.Trigger;
             }
 

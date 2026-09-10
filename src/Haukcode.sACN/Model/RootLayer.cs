@@ -88,7 +88,9 @@ namespace Haukcode.sACN.Model
             if (postambleLength != POSTAMBLE_LENGTH)
                 throw new InvalidDataException("postambleLength != POSTAMBLE_LENGTH");
 
-            if (!reader.VerifyBytes(PACKET_IDENTIFIER))
+            // Span compare and span-constructed Guid: the reader's VerifyBytes/ReadGuid copy the
+            // bytes into fresh arrays, which was two allocations on every received packet
+            if (!reader.ReadSlice(PACKET_IDENTIFIER.Length).Span.SequenceEqual(PACKET_IDENTIFIER))
                 throw new InvalidDataException("packetIdentifier != PACKET_IDENTIFIER");
 
             ushort flagsAndRootLength = (ushort)reader.ReadInt16();
@@ -98,7 +100,7 @@ namespace Haukcode.sACN.Model
 
             ushort length = (ushort)(flagsAndRootLength & SACNPacket.LAST_TWELVE_BITS_MASK);
             int vector = reader.ReadInt32();
-            Guid cid = reader.ReadGuid();
+            Guid cid = new Guid(reader.ReadSlice(16).Span, bigEndian: true);
 
             switch (vector)
             {
