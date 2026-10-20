@@ -12,6 +12,8 @@ A high-performance, cross-platform sACN (E1.31) library for .NET
   - [Sending DMX Data](#sending-dmx-data)
   - [Multicast vs Unicast](#multicast-vs-unicast)
   - [Sync Packets](#sync-packets)
+  - [Universe Discovery](#universe-discovery)
+- [What the Application Handles](#what-the-application-handles)
 - [API Reference](#api-reference)
 - [Advanced Features](#advanced-features)
 - [Network Configuration](#network-configuration)
@@ -29,7 +31,7 @@ sACN (Streaming ACN) is a network protocol standardized as ANSI E1.31, designed 
 - **Universe**: A logical grouping of up to 512 DMX channels (e.g., Universe 1 might control stage lights, Universe 2 might control house lights)
 - **Multicast**: Efficient one-to-many transmission where packets are sent to a multicast group address
 - **Unicast**: One-to-one transmission where packets are sent directly to a specific IP address
-- **Priority**: sACN supports source priority (0-200), allowing multiple controllers to manage the same universe with Highest Takes Precedence (HTP) logic
+- **Priority**: each source sends a priority (0-200, default 100). A receiver with several sources on one universe follows the highest priority; how it merges sources with equal priority (often HTP, Highest Takes Precedence) is up to the receiver
 - **Sync Packets**: Synchronization packets that ensure multiple universes update simultaneously for effects that span multiple fixtures
 
 **Official Specification**: [ANSI E1.31-2018](https://tsp.esta.org/tsp/documents/docs/ANSI_E1-31-2018.pdf)
@@ -40,13 +42,14 @@ sACN (Streaming ACN) is a network protocol standardized as ANSI E1.31, designed 
 - Send and receive DMX data over sACN
 - Multicast and unicast transmission modes
 - Sync packet support for synchronized universe updates
-- Priority-based source arbitration
+- Universe discovery (sending and receiving)
+- Stream termination, preview data and priority fields
 
 ✅ **High Performance**
 - Built on high-performance communication primitives
-- Efficient memory management with buffer pooling
-- Asynchronous operations with System.Threading.Channels
-- Optimized packet parsing and serialization
+- No per-packet allocations on the send and receive paths
+- Dedicated sender threads, optionally sharded across several sockets
+- Packets parsed on the receive thread and handed straight to your callback
 
 ✅ **Cross-Platform**
 - Supports .NET 8.0, 9.0, and 10.0
@@ -76,7 +79,7 @@ Install-Package Haukcode.sACN
 Or add directly to your `.csproj` file:
 
 ```xml
-<PackageReference Include="Haukcode.sACN" Version="2.0.0" />
+<PackageReference Include="Haukcode.sACN" Version="3.0.*" />
 ```
 
 ## Quick Start
@@ -320,7 +323,7 @@ public class DMXSender
 
 **Multicast** (pass `null` as address):
 - Efficient for sending to multiple receivers
-- Uses multicast group addresses (239.255.0.1 - 239.255.63.255)
+- Uses multicast group addresses 239.255.0.1 - 239.255.249.255 (universes 1-63999)
 - Receivers join multicast group for specific universe
 - Standard sACN operation mode
 
@@ -377,18 +380,62 @@ if (p.Packet.FramingLayer is SyncFramingLayer sync && p.SubscribeMode.HasFlag(Su
     OnSync(sync.SyncAddress);
 ```
 
+### Universe Discovery
+
+Sources announce the universes they send on 239.255.250.214 (universe 64214). E1.31 expects
+an announcement every 10 seconds; the client sorts the list and splits it into pages of 512.
+
+```csharp
+// Announce (call every 10 seconds while sending)
+await client.SendUniverseDiscovery(null, new ushort[] { 1, 2, 3 });
+
+// Listen for other sources' announcements
+client.JoinDiscoveryMulticastGroup();
+
+// In the channel writer
+if (p.Packet is SACNUniverseDiscoveryPacket discovery)
+    Console.WriteLine($"{discovery.SourceName}: page {discovery.Page}/{discovery.LastPage}, universes {string.Join(",", discovery.Universes)}");
+```
+
+## What the Application Handles
+
+The library sends and receives E1.31 packets: it builds them to the spec, and on receive it
+discards packets the spec says to discard. The receiver and sender behavior E1.31 describes on
+top of that is up to the application:
+
+**Receiving**
+- **Sequence numbers** (E1.31 section 6.7.2): drop a packet whose sequence number is behind
+  the last one from the same source and universe: new minus last, as a signed byte, between
+  -19 and 0.
+- **Data loss** (6.7.1): treat a source as gone after 2.5 s without packets, or immediately on
+  a packet with `Options.StreamTerminated` (ignore that packet's DMX data).
+- **Merging**: pick the highest-priority source per universe, and merge equal priorities.
+  Identify sources by CID (`packet.UUID`), not IP address.
+- **Preview data**: ignore packets with `Options.PreviewData` for live output.
+- **Synchronization**: hold data packets that have a sync address until the sync packet arrives.
+- **Filtering**: the client delivers every packet that reaches it. Unicast data for universes
+  you haven't joined arrives with `SubscribeMode.None`. On Windows the client also receives its
+  own multicast; skip packets where `packet.UUID == client.SenderId`.
+
+**Sending**
+- **Keep-alive**: keep sending each universe while it's active. When the data stops changing,
+  E1.31 allows slowing down but expects at least one packet a second.
+- **Discovery**: call `SendUniverseDiscovery` every 10 seconds.
+- **Termination**: `terminate: true` when you stop sending a universe.
+
 ## API Reference
 
 ### SACNClient Constructor
 
 ```csharp
 public SACNClient(
-    Guid senderId,                                    // Unique identifier for this source
-    string senderName,                                // Human-readable source name (max 64 chars)
+    Guid senderId,                                    // CID: unique, stable identifier for this source
+    string senderName,                                // Source name, at most 63 UTF-8 bytes (longer is cut)
     IPAddress localAddress,                           // Local network interface to bind to
-    Func<ReceiveDataPacket, Task>? channelWriter,    // Optional callback for received packets
-    Action? channelWriterComplete,                    // Optional callback when receiving completes
-    int port = 5568)                                  // sACN port (default 5568)
+    Func<ReceiveDataPacket, Task>? channelWriter = null,  // Called for each received packet (see Packet Lifetime)
+    Action? channelWriterComplete = null,             // Called when receiving stops
+    int port = 5568,                                  // sACN port (default 5568)
+    int senderCount = 1)                              // Sender threads/sockets, sharded by universe
 ```
 
 ### Sending Methods
@@ -402,7 +449,7 @@ Task SendDmxData(
     byte priority = 100,     // Priority (0-200, default 100)
     ushort syncAddress = 0,  // Sync universe (0 = no sync)
     byte startCode = 0,      // Start code (0 = standard DMX)
-    bool important = false,  // Priority queue flag
+    bool important = false,  // Never dropped by the send queue (age cut-off or bound)
     bool terminate = false,  // Terminate the stream (sends three packets)
     bool preview = false,    // Preview_Data: for visualizers, not live output
     bool forceSynchronization = true)  // With a sync address: carry on unsynchronized if sync stops
@@ -410,8 +457,16 @@ Task SendDmxData(
 // Send sync packet
 Task SendSync(
     IPAddress? address,      // null for multicast, IP for unicast
-    ushort syncAddress)      // Sync universe ID
+    ushort syncAddress)      // Sync universe ID (1-63999)
+
+// Announce the universes this source sends (every 10 seconds)
+Task SendUniverseDiscovery(
+    IPAddress? address,      // null for the discovery multicast group
+    IEnumerable<ushort> universes,  // Sorted and split into pages of 512 for you
+    bool important = true)
 ```
+
+`SendDmxData` and `SendSync` may be called from several threads.
 
 ### Receiving Methods
 
@@ -425,7 +480,7 @@ void DropDMXUniverse(ushort universeId)
 // Drop all universe subscriptions
 void DropAllInputUniverses()
 
-// Join universe for sync/trigger packets only
+// Join universe as a trigger (see Trigger Universes)
 void JoinDMXUniverseForTrigger(ushort universeId)
 
 // Drop trigger universe
@@ -433,7 +488,13 @@ void DropDMXUniverseForTrigger(ushort universeId)
 
 // Drop all trigger subscriptions
 void DropAllTriggerUniverses()
+
+// Listen for universe discovery announcements
+void JoinDiscoveryMulticastGroup()
+void DropDiscoveryMulticastGroup()
 ```
+
+Universes are 1-63999.
 
 ### Properties
 
@@ -506,16 +567,16 @@ E1.31 says to ignore the DMX data in these packets.
 List and select specific network interfaces:
 
 ```csharp
-// Get all available network interfaces
-var adapters = Haukcode.Network.Utils.GetAllBindAddresses();
+// Get the IPv4 interfaces (Ethernet and Wi-Fi)
+var interfaces = Haukcode.Network.Utils.GetCommonInterfaces();
 
-foreach (var adapter in adapters)
+foreach (var nic in interfaces)
 {
-    Console.WriteLine($"{adapter.Name}: {adapter.IPAddress}");
+    Console.WriteLine($"{nic.AdapterName}: {nic.IPAddress}");
 }
 
 // Use specific interface
-var selectedInterface = adapters.First(a => a.Name.Contains("Ethernet"));
+var selectedInterface = interfaces.First(a => a.AdapterName.Contains("Ethernet"));
 var client = new SACNClient(
     senderId: Guid.NewGuid(),
     senderName: "MyApp",
@@ -543,7 +604,8 @@ sudo ufw allow 5568/udp
 sACN uses multicast addresses in the range `239.255.0.0/16`:
 - Universe 1 → 239.255.0.1
 - Universe 2 → 239.255.0.2
-- Universe N → 239.255.(N/256).(N%256)
+- Universe N → 239.255.(N/256).(N%256), up to universe 63999 → 239.255.249.255
+- Universe discovery → 239.255.250.214
 
 Ensure your network switches support IGMP snooping for efficient multicast delivery.
 
@@ -557,15 +619,15 @@ Console.WriteLine($"Receive buffer size: {client.ActualReceiveBufferSize} bytes"
 
 For high-traffic scenarios:
 - Use dedicated network interface for sACN
-- Enable Jumbo Frames if supported (MTU > 1500)
 - Ensure switches have sufficient multicast capacity
+- Raise `senderCount` if one sender thread can't keep up
 - Monitor for packet loss using sequence numbers
 
 ## Performance Considerations
 
-- **Memory**: Uses buffer pooling to minimize GC pressure
-- **Threading**: Asynchronous I/O for non-blocking operations
-- **Packet Rate**: Supports high packet rates (up to 40 packets/second per universe per E1.31 spec)
+- **Memory**: No per-packet allocations; received packets are reused (see Packet Lifetime)
+- **Threading**: Dedicated sender and receive threads; `channelWriter` runs on the receive thread, so keep it fast
+- **Packet Rate**: E1.31 sets no maximum; DMX512 itself refreshes at up to about 44 Hz
 - **Universes**: Can handle hundreds of universes simultaneously
 - **Latency**: Minimal processing latency, suitable for real-time control
 
@@ -575,7 +637,7 @@ For high-traffic scenarios:
 
 1. **Check network interface**: Ensure you're binding to the correct interface
    ```csharp
-   var addresses = Haukcode.Network.Utils.GetAllBindAddresses();
+   var interfaces = Haukcode.Network.Utils.GetCommonInterfaces();
    // Verify the address you're using
    ```
 

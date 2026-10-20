@@ -11,6 +11,7 @@ sACN (Streaming ACN / ANSI E1.31) is a network protocol for transmitting DMX512 
 - ✅ Send and receive DMX data via sACN/E1.31
 - ✅ Multicast and unicast support
 - ✅ Sync packet support for frame-accurate multi-universe synchronization
+- ✅ Universe discovery, stream termination and priority
 - ✅ High-performance with buffer pooling and async I/O
 - ✅ Cross-platform (.NET 8.0, 9.0, 10.0)
 - ✅ Reactive extensions support
@@ -41,7 +42,16 @@ client.JoinDMXUniverse(1);
 // Process packets
 await foreach (var packet in channel.Reader.ReadAllAsync())
 {
-    var data = packet.Packet.RootLayer.FramingLayer as DataFramingLayer;
+    // Sync and discovery packets arrive here too
+    if (packet.Packet.FramingLayer is not DataFramingLayer data)
+        continue;
+
+    if (data.Options.StreamTerminated)
+    {
+        Console.WriteLine($"Universe {data.UniverseId}: {data.SourceName} stopped");
+        continue;
+    }
+
     Console.WriteLine($"Universe {data.UniverseId}: {data.DMPLayer.Data.Length} channels");
 }
 ```
@@ -72,11 +82,16 @@ await client.SendDmxData(IPAddress.Parse("192.168.1.100"), universeId: 1, dmxDat
 **Sending:**
 - `SendDmxData()` - Send DMX channel data
 - `SendSync()` - Send synchronization packet
+- `SendUniverseDiscovery()` - Announce the universes you send (every 10 s)
 
 **Receiving:**
 - `JoinDMXUniverse()` - Subscribe to a universe
 - `DropDMXUniverse()` - Unsubscribe from a universe
-- `JoinDMXUniverseForTrigger()` - Listen for sync packets only
+- `JoinDMXUniverseForTrigger()` - Join a universe as a trigger (for sync addresses)
+- `JoinDiscoveryMulticastGroup()` - Listen for universe discovery
+
+Sequence checking, the 2.5 s data loss timeout, source merging and keep-alive are left to the
+application; the GitHub README lists what E1.31 expects.
 
 ## Documentation
 
