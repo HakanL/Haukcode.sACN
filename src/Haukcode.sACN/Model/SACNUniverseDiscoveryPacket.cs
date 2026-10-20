@@ -41,5 +41,26 @@ namespace Haukcode.sACN.Model
             : base(rootLayer)
         {
         }
+
+        /// <summary>
+        /// Build the pages that advertise <paramref name="universes"/>: duplicates removed, sorted
+        /// ascending and split into pages of at most 512 universes, as E1.31-2018 section 8 requires.
+        /// Always returns at least one page, so a source with no universes still announces itself.
+        /// </summary>
+        public static IReadOnlyList<SACNUniverseDiscoveryPacket> CreatePages(Guid uuid, string sourceName, IEnumerable<ushort> universes)
+        {
+            var sorted = (universes ?? []).Distinct().Order().ToArray();
+            int pageCount = Math.Max(1, (sorted.Length + UniverseDiscoveryFramingLayer.MaxUniversesPerPage - 1) / UniverseDiscoveryFramingLayer.MaxUniversesPerPage);
+
+            // 65536 universes fill 128 pages, so the page numbers always fit in a byte
+            var pages = new SACNUniverseDiscoveryPacket[pageCount];
+            for (int page = 0; page < pageCount; page++)
+            {
+                var pageUniverses = sorted.Skip(page * UniverseDiscoveryFramingLayer.MaxUniversesPerPage).Take(UniverseDiscoveryFramingLayer.MaxUniversesPerPage);
+                pages[page] = new SACNUniverseDiscoveryPacket(uuid, sourceName, pageUniverses, (byte)page, (byte)(pageCount - 1));
+            }
+
+            return pages;
+        }
     }
 }

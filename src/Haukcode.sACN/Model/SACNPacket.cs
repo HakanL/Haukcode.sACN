@@ -10,6 +10,11 @@ namespace Haukcode.sACN.Model
         public const ushort LAST_TWELVE_BITS_MASK = 0b0000_1111_1111_1111;
         public const int MAX_PACKET_SIZE = 638;
 
+        /// <summary>
+        /// A universe discovery page with the full 512 universes: 120 header bytes plus 2 per universe.
+        /// </summary>
+        public const int MAX_UNIVERSE_DISCOVERY_PACKET_SIZE = 120 + (UniverseDiscoveryFramingLayer.MaxUniversesPerPage * 2);
+
         public RootLayer RootLayer { get; set; }
 
         public FramingLayer FramingLayer => RootLayer.FramingLayer;

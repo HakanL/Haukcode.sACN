@@ -54,7 +54,8 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     public const int DefaultPort = 5568;
     public const int ReceiveBufferSize = 680 * 20 * 200;
-    public static readonly IPAddress UniverseDiscoveryMulticastAddress = IPAddress.Parse("239.255.250.133");
+    public const ushort UniverseDiscoveryUniverse = 64214;
+    public static readonly IPAddress UniverseDiscoveryMulticastAddress = Haukcode.Network.Utils.GetMulticastAddress(UniverseDiscoveryUniverse);
     private const int SendBufferSize = 680 * 20 * 200;
     private static readonly IPEndPoint _blankEndpoint = new(IPAddress.Any, 0);
 
@@ -127,7 +128,10 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         Action? channelWriterComplete = null,
         int port = DefaultPort,
         int senderCount = 1)
-        : base(SACNPacket.MAX_PACKET_SIZE, channelWriter, channelWriterComplete, senderCount)
+        // Sized for the largest packet we can receive, a full universe discovery page (1144
+        // bytes). A smaller buffer silently truncates those datagrams on Windows. The send pool
+        // shares this size, but only holds as many buffers as are actually in flight.
+        : base(SACNPacket.MAX_UNIVERSE_DISCOVERY_PACKET_SIZE, channelWriter, channelWriterComplete, senderCount)
     {
         if (senderId == Guid.Empty)
             throw new ArgumentException("Invalid sender Id", nameof(senderId));
@@ -325,23 +329,24 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     }
 
     /// <summary>
-    /// Send universe discovery (E1.31 extended discovery packet)
+    /// Send universe discovery (E1.31 extended discovery packet). The universes are sorted and
+    /// split into pages of at most 512, and every page is sent. E1.31 expects this to be repeated
+    /// every 10 seconds.
     /// </summary>
     /// <param name="address">Optional unicast destination. If null, uses the universe discovery multicast address.</param>
     /// <param name="universes">Universe IDs to advertise.</param>
-    /// <param name="page">Page number.</param>
-    /// <param name="lastPage">Last page number.</param>
     /// <param name="important">Important</param>
-    public Task SendUniverseDiscovery(IPAddress? address, IEnumerable<ushort> universes, byte page = 0, byte lastPage = 0, bool important = true)
+    public async Task SendUniverseDiscovery(IPAddress? address, IEnumerable<ushort> universes, bool important = true)
     {
         if (!IsOperational)
-            return Task.CompletedTask;
-
-        var packet = new SACNUniverseDiscoveryPacket(SenderId, SenderName, universes, page, lastPage);
+            return;
 
         var destination = new IPEndPoint(address ?? UniverseDiscoveryMulticastAddress, this.localEndPoint.Port);
 
-        return SendPacketImmediately(destination, packet, important);
+        foreach (var packet in SACNUniverseDiscoveryPacket.CreatePages(SenderId, SenderName, universes))
+        {
+            await SendPacketImmediately(destination, packet, important);
+        }
     }
 
     /// <summary>
