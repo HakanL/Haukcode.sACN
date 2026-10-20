@@ -46,7 +46,7 @@ namespace Haukcode.sACN.Test
 
                     return Task.CompletedTask;
                 },
-                port: Random.Shared.Next(40000, 60000));
+                port: TestPorts.GetFreeUdpPort());
 
             var senders = Enumerable.Range(1, Threads).Select(u => Task.Run(async () =>
             {

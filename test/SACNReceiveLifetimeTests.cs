@@ -44,7 +44,7 @@ namespace Haukcode.sACN.Test
                 "Test",
                 IPAddress.Loopback,
                 channelWriter: async p => await channel.Writer.WriteAsync(p.Clone()),
-                port: Random.Shared.Next(40000, 60000));
+                port: TestPorts.GetFreeUdpPort());
 
             for (ushort universe = 1; universe <= 5; universe++)
                 await client.SendDmxData(IPAddress.Loopback, universe, new[] { (byte)(universe * 10) });

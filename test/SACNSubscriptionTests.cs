@@ -24,7 +24,7 @@ namespace Haukcode.sACN.Test
 
                     return Task.CompletedTask;
                 },
-                port: Random.Shared.Next(40000, 60000));
+                port: TestPorts.GetFreeUdpPort());
         }
 
         private async Task<(ushort Universe, SubscribeModes Mode, IPEndPoint Destination)> SendAndReceive(SACNClient client, ushort universe)

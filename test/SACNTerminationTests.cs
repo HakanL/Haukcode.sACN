@@ -42,7 +42,7 @@ namespace Haukcode.sACN.Test
         public async Task Terminate_SendsThreePackets_AndTheyAreDelivered()
         {
             var received = new ConcurrentQueue<(byte Sequence, bool Terminated)>();
-            int port = Random.Shared.Next(40000, 60000);
+            int port = TestPorts.GetFreeUdpPort();
 
             using var client = new SACNClient(
                 Guid.NewGuid(),

@@ -80,7 +80,7 @@ namespace Haukcode.sACN.Test
         [Fact]
         public void SendDmxData_RejectsOutOfRangeArguments()
         {
-            using var client = new SACNClient(Guid.NewGuid(), "Test", IPAddress.Loopback, port: Random.Shared.Next(40000, 60000));
+            using var client = new SACNClient(Guid.NewGuid(), "Test", IPAddress.Loopback, port: TestPorts.GetFreeUdpPort());
 
             Assert.Throws<ArgumentOutOfRangeException>("universeId", () => { _ = client.SendDmxData(null, 0, new byte[512]); });
             Assert.Throws<ArgumentOutOfRangeException>("universeId", () => { _ = client.SendDmxData(null, 64000, new byte[512]); });
