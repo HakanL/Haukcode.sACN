@@ -127,7 +127,8 @@ await foreach (var packet in channel.Reader.ReadAllAsync())
 
 async Task WritePacketAsync(Channel<ReceiveDataPacket> ch, ReceiveDataPacket pkt)
 {
-    await ch.Writer.WriteAsync(pkt);
+    // The packet is reused for the next datagram once this returns, so queue a copy
+    await ch.Writer.WriteAsync(pkt.Clone());
 }
 ```
 
@@ -194,7 +195,8 @@ public class DMXReceiver
             senderId: Guid.NewGuid(),
             senderName: "DMX Receiver",
             localAddress: IPAddress.Any,
-            channelWriter: async p => await channel.Writer.WriteAsync(p),
+            // Received packets are reused once the writer returns, so queue a copy
+            channelWriter: async p => await channel.Writer.WriteAsync(p.Clone()),
             channelWriterComplete: () => channel.Writer.Complete());
 
         // Subscribe to error events
@@ -453,20 +455,29 @@ client.OnError.Subscribe(error =>
 });
 ```
 
-### Buffer Management
+### Packet Lifetime
 
-The library uses efficient buffer pooling to minimize allocations. When receiving data, the DMX data references memory from a shared pool. If you need to keep the data beyond the callback scope, copy it:
+To avoid allocating per packet, the client parses every received data packet into the same
+`ReceiveDataPacket`, and the DMX data is a slice of its single receive buffer. Both are
+overwritten by the next datagram as soon as your `channelWriter` returns. Either process the
+packet inside the writer, or keep a copy:
 
 ```csharp
-var dataLayer = packet.Packet.RootLayer.FramingLayer as DataFramingLayer;
-if (dataLayer != null)
+// Zero-copy: handle it on the receive thread, before returning
+channelWriter: p =>
 {
-    // Copy data if needed beyond this scope
-    byte[] dmxCopy = dataLayer.DMPLayer.Data.ToArray();
-    
-    // Store or process dmxCopy later
+    if (p.Packet.FramingLayer is DataFramingLayer data && !data.Options.StreamTerminated)
+        ApplyDmx(data.UniverseId, data.DMPLayer.Data.Span);
+
+    return Task.CompletedTask;
 }
+
+// Or queue an independent copy to process later
+channelWriter: p => channel.Writer.WriteAsync(p.Clone()).AsTask()
 ```
+
+Don't put the packet itself in a queue or keep a reference to it: every queued item would be
+the same object, holding whatever arrived last.
 
 ### Stream Termination
 

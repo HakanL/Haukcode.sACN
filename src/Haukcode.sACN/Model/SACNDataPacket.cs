@@ -24,6 +24,22 @@ namespace Haukcode.sACN.Model
         }
 
         /// <summary>
+        /// An independent copy, including a copy of the DMX data, for keeping a received packet
+        /// after the client's channel writer returns (received packets are reused).
+        /// </summary>
+        public SACNDataPacket Clone()
+        {
+            var framingLayer = DataFramingLayer;
+            var dmpLayer = framingLayer.DMPLayer;
+
+            var copy = new SACNDataPacket(framingLayer.UniverseId, framingLayer.SourceName, UUID, framingLayer.SequenceId,
+                dmpLayer.Data.ToArray(), framingLayer.Priority, framingLayer.SyncAddress, dmpLayer.StartCode);
+            copy.DataFramingLayer.Options.SetFrom(framingLayer.Options.ToByte());
+
+            return copy;
+        }
+
+        /// <summary>
         /// Reconfigure this packet in place for a new data frame, so a single scratch packet
         /// can be reused on the hot send path instead of allocating a fresh packet and its
         /// nested layers per universe per tick. Sender name and UUID are set at construction and

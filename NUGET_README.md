@@ -31,7 +31,8 @@ var client = new SACNClient(
     senderId: Guid.NewGuid(),
     senderName: "MyReceiver",
     localAddress: IPAddress.Any,
-    channelWriter: async p => await channel.Writer.WriteAsync(p),
+    // Received packets are reused once the writer returns, so queue a copy
+    channelWriter: async p => await channel.Writer.WriteAsync(p.Clone()),
     channelWriterComplete: () => channel.Writer.Complete());
 
 // Join Universe 1

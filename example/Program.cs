@@ -90,12 +90,8 @@ public class Program
                     // We only support start code 0
                     return null;
 
-                // Hack
-                var newBuf = new byte[dmpLayer.Data.Length];
-                dmpLayer.Data.CopyTo(newBuf);
-                dmpLayer.Data = newBuf;
-
-                return receiveData;
+                // The packet is reused once the writer returns; queue a copy
+                return receiveData.Clone();
 
             case SyncFramingLayer syncFramingLayer:
                 return receiveData;

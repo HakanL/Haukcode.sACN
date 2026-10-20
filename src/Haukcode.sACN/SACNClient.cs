@@ -126,6 +126,11 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     private bool listenDiscoveryMulticastGroup = false;
 
+    /// <param name="channelWriter">
+    /// Called on the receive thread for every received packet. Data packets are reused for the
+    /// next datagram once this returns, so process the packet here, or keep
+    /// <see cref="ReceiveDataPacket.Clone"/>, for example before writing it to a Channel.
+    /// </param>
     /// <param name="senderCount">
     /// Number of sender threads/sockets. Packets are sharded by universe id, so a universe always
     /// goes out on one thread and one socket and its sequence numbers stay ordered. Default 1 =
