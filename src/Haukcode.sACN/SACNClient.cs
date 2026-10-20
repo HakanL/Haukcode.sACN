@@ -149,11 +149,10 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         int senderCount = 1)
         // Sized for the largest packet we can receive, a full universe discovery page (1144
         // bytes). A smaller buffer silently truncates those datagrams on Windows. The send pool
-        // shares this size, but only holds as many buffers as are actually in flight.
-        : base(SACNPacket.MAX_UNIVERSE_DISCOVERY_PACKET_SIZE, channelWriter, channelWriterComplete, senderCount)
+        // shares this size, but only holds as many buffers as are actually in flight. The
+        // arguments are checked first: the base constructor starts the sender threads.
+        : base(CheckArguments(senderId, senderName, localAddress, port), channelWriter, channelWriterComplete, senderCount)
     {
-        if (senderId == Guid.Empty)
-            throw new ArgumentException("Invalid sender Id", nameof(senderId));
         SenderId = senderId;
         SenderName = senderName;
 
@@ -161,32 +160,51 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         this.scratchPacketWriter = this.scratchDataPacket.WriteToBuffer;
         this.pendingSendDataFactory = BuildPendingSendData;
 
-        if (port <= 0)
+        this.localEndPoint = new IPEndPoint(localAddress, port);
+        this.sendSockets = new Socket[SenderCount];
+
+        try
+        {
+            for (int i = 0; i < SenderCount; i++)
+            {
+                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                this.sendSockets[i] = socket;
+
+                socket.SendBufferSize = SendBufferSize;
+
+                Haukcode.Network.Utils.SetSocketOptions(socket);
+
+                // Multicast socket settings
+                socket.DontFragment = true;
+                socket.MulticastLoopback = false;
+
+                // Bind to the local interface (ephemeral port)
+                socket.Bind(new IPEndPoint(localAddress, 0));
+
+                socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
+            }
+
+            StartReceive();
+        }
+        catch
+        {
+            // Binding to an address this host doesn't have, or a port in use: stop the sender
+            // threads and close the sockets made so far, or they'd outlive the failed constructor
+            Dispose();
+            throw;
+        }
+    }
+
+    private static int CheckArguments(Guid senderId, string senderName, IPAddress localAddress, int port)
+    {
+        if (senderId == Guid.Empty)
+            throw new ArgumentException("Invalid sender Id", nameof(senderId));
+        ArgumentNullException.ThrowIfNull(senderName);
+        ArgumentNullException.ThrowIfNull(localAddress);
+        if (port <= 0 || port > IPEndPoint.MaxPort)
             throw new ArgumentException("Invalid port", nameof(port));
 
-        this.localEndPoint = new IPEndPoint(localAddress, port);
-
-        this.sendSockets = new Socket[SenderCount];
-        for (int i = 0; i < SenderCount; i++)
-        {
-            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            socket.SendBufferSize = SendBufferSize;
-
-            Haukcode.Network.Utils.SetSocketOptions(socket);
-
-            // Multicast socket settings
-            socket.DontFragment = true;
-            socket.MulticastLoopback = false;
-
-            // Bind to the local interface (ephemeral port)
-            socket.Bind(new IPEndPoint(localAddress, 0));
-
-            socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
-
-            this.sendSockets[i] = socket;
-        }
-
-        StartReceive();
+        return SACNPacket.MAX_UNIVERSE_DISCOVERY_PACKET_SIZE;
     }
 
     public IPEndPoint LocalEndPoint => this.localEndPoint;
@@ -197,8 +215,8 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     public void JoinDMXUniverse(ushort universeId)
     {
-        if (this.listenSocket == null)
-            throw new ArgumentNullException();
+        CheckUniverse(universeId, nameof(universeId));
+        ObjectDisposedException.ThrowIf(this.listenSocket == null, this);
 
         lock (this.subscriptionLock)
         {
@@ -235,8 +253,8 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     public void JoinDMXUniverseForTrigger(ushort universeId)
     {
-        if (this.listenSocket == null)
-            throw new ArgumentNullException();
+        CheckUniverse(universeId, nameof(universeId));
+        ObjectDisposedException.ThrowIf(this.listenSocket == null, this);
 
         lock (this.subscriptionLock)
         {
@@ -577,8 +595,12 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
         if (disposing)
         {
-            foreach (var socket in this.sendSockets)
+            // Null entries when the constructor failed part-way
+            foreach (var socket in this.sendSockets ?? [])
             {
+                if (socket == null)
+                    continue;
+
                 try
                 {
                     socket.Shutdown(SocketShutdown.Both);
@@ -726,31 +748,35 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     public void JoinDiscoveryMulticastGroup()
     {
-        if (this.listenSocket == null)
-            throw new ArgumentNullException();
+        ObjectDisposedException.ThrowIf(this.listenSocket == null, this);
 
-        if (!this.listenDiscoveryMulticastGroup)
+        lock (this.subscriptionLock)
         {
-            // Join group
-            var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
-            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            if (!this.listenDiscoveryMulticastGroup)
+            {
+                // Join group
+                var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
+                MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
 
-            this.listenDiscoveryMulticastGroup = true;
+                this.listenDiscoveryMulticastGroup = true;
+            }
         }
     }
 
     public void DropDiscoveryMulticastGroup()
     {
-        if (this.listenSocket == null)
-            throw new ArgumentNullException();
+        ObjectDisposedException.ThrowIf(this.listenSocket == null, this);
 
-        if (this.listenDiscoveryMulticastGroup)
+        lock (this.subscriptionLock)
         {
-            // Leave group
-            var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
-            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
+            if (this.listenDiscoveryMulticastGroup)
+            {
+                // Leave group
+                var option = new MulticastOption(UniverseDiscoveryMulticastAddress, this.localEndPoint.Address);
+                MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
 
-            this.listenDiscoveryMulticastGroup = false;
+                this.listenDiscoveryMulticastGroup = false;
+            }
         }
     }
 }
