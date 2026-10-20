@@ -41,9 +41,14 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     // Reused across SendDmxData calls instead of allocating a fresh SACNDataPacket (+ its
     // RootLayer/DataFramingLayer/DMPLayer) per universe per tick. Reconfigured in place by
-    // Update() and serialized synchronously inside QueuePacket before the next call, so a
-    // single instance is safe on the single-threaded send path (the send queue is SingleWriter).
+    // Update() and serialized synchronously inside QueuePacket, all under sendLock, so callers
+    // on different threads can't interleave on it.
     private readonly SACNDataPacket scratchDataPacket;
+
+    // Serializes the send path: the scratch packet, the pending* factory arguments and the
+    // sequence counters. Uncontended it costs tens of nanoseconds per packet, small next to the
+    // serialization and queueing it covers.
+    private readonly object sendLock = new object();
 
     // Receive-side scratch: the parser fills this packet graph in place for every DATA packet
     // instead of allocating a packet plus three layers per datagram (36,000/s at 600 universes /
@@ -97,11 +102,9 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     private readonly IPEndPoint localEndPoint;
     // Per-universe sACN sequence counters, indexed by universe id (and by sync address for the sync
-    // counter). Written only from the single send/scheduler thread on the hot path — one increment
-    // per universe per packet, ~36,000/s at 600 universes @ 60 Hz — so a plain array is used instead
-    // of a locked dictionary. The lock + dictionary lookup was a measured hot spot (~13% of the
-    // scheduler thread at that load). A receiver tolerates an occasional sequence discontinuity, so
-    // even a benign race here would be harmless.
+    // counter). Incremented under sendLock — one increment per universe per packet, ~36,000/s at
+    // 600 universes @ 60 Hz — so a plain array is used instead of a dictionary. The dictionary
+    // lookup was a measured hot spot (~13% of the scheduler thread at that load).
     private readonly byte[] sequenceIds = new byte[ushort.MaxValue + 1];
     private readonly byte[] sequenceIdsSync = new byte[ushort.MaxValue + 1];
 
@@ -346,20 +349,23 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         if (!IsOperational)
             return Task.CompletedTask;
 
-        if (terminate)
+        lock (this.sendLock)
         {
-            // Each call serializes the scratch packet before it returns, so the three can be
-            // queued back to back before awaiting any of them
-            var sends = new Task[TerminationPacketCount];
-            for (int i = 0; i < sends.Length; i++)
+            if (terminate)
             {
-                sends[i] = QueueDmxData(address, universeId, dmxData, priority, syncAddress, startCode, important, terminate, preview, forceSynchronization);
+                // Each call serializes the scratch packet before it returns, so the three can be
+                // queued back to back before awaiting any of them
+                var sends = new Task[TerminationPacketCount];
+                for (int i = 0; i < sends.Length; i++)
+                {
+                    sends[i] = QueueDmxData(address, universeId, dmxData, priority, syncAddress, startCode, important, terminate, preview, forceSynchronization);
+                }
+
+                return Task.WhenAll(sends);
             }
 
-            return Task.WhenAll(sends);
+            return QueueDmxData(address, universeId, dmxData, priority, syncAddress, startCode, important, terminate, preview, forceSynchronization);
         }
-
-        return QueueDmxData(address, universeId, dmxData, priority, syncAddress, startCode, important, terminate, preview, forceSynchronization);
     }
 
     /// <summary>
@@ -367,6 +373,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// </summary>
     private const int TerminationPacketCount = 3;
 
+    // Called under sendLock
     private Task QueueDmxData(IPAddress? address, ushort universeId, ReadOnlyMemory<byte> dmxData, byte priority, ushort syncAddress, byte startCode, bool important, bool terminate, bool preview, bool forceSynchronization)
     {
         byte sequenceId = GetNewSequenceId(universeId);
@@ -390,7 +397,11 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         if (!IsOperational)
             return Task.CompletedTask;
 
-        byte sequenceId = GetNewSequenceIdSync(syncAddress);
+        byte sequenceId;
+        lock (this.sendLock)
+        {
+            sequenceId = GetNewSequenceIdSync(syncAddress);
+        }
 
         var packet = new SACNPacket(new RootLayer
         {
@@ -434,8 +445,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// <param name="packet">Packet</param>
     /// <param name="important">Important</param>
     // Arguments for the cached send-data factory below. QueuePacket invokes the factory and the
-    // packet writer synchronously before its first await, and SendDmxData runs on the single
-    // queue-writer thread (the same assumption the non-locked caches here already rest on), so
+    // packet writer synchronously before it returns, and SendDmxData holds sendLock across it, so
     // passing the per-packet arguments through fields lets one cached delegate replace a fresh
     // closure per packet. The sync/barrier path keeps its closure: QueueBarrierPacket invokes
     // the factory several times with possible awaits in between, where fields could be
