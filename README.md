@@ -6,6 +6,7 @@ A high-performance, cross-platform sACN (E1.31) library for .NET
 - [What is sACN (E1.31)?](#what-is-sacn-e131)
 - [Features](#features)
 - [Installation](#installation)
+- [Upgrading from 2.x](#upgrading-from-2x)
 - [Quick Start](#quick-start)
 - [Usage Examples](#usage-examples)
   - [Receiving DMX Data](#receiving-dmx-data)
@@ -81,6 +82,24 @@ Or add directly to your `.csproj` file:
 ```xml
 <PackageReference Include="Haukcode.sACN" Version="3.0.*" />
 ```
+
+## Upgrading from 2.x
+
+3.0 brings the library in line with ANSI E1.31-2018 and has breaking changes. The
+[3.0 release notes](https://github.com/HakanL/Haukcode.sACN/releases) list them all; the
+ones most likely to affect you:
+
+- **Received packets are reused.** The packet handed to `channelWriter` is overwritten by the
+  next datagram as soon as the writer returns. The 2.x README examples queued it as-is, which
+  returns corrupted data; queue `p.Clone()` instead (see [Packet Lifetime](#packet-lifetime)).
+- **Stream_Terminated packets are delivered.** Check `Options.StreamTerminated` before applying
+  a packet's DMX data. `terminate: true` now sends the three packets E1.31 requires.
+- **Arguments are validated.** Universes must be 1-63999, priority 0-200 and DMX data at most
+  512 bytes, or `SendDmxData` and the join methods throw `ArgumentOutOfRangeException`.
+- **Universe discovery works with other products.** 2.x sent a malformed packet to the wrong
+  address. `SendUniverseDiscovery` no longer takes page numbers; it pages for you.
+- **Unsigned types.** Wire constants and lengths that E1.31 defines as unsigned are `ushort` or
+  `uint`, and `SACNPacket.Parse` returns null for datagrams that aren't E1.31.
 
 ## Quick Start
 

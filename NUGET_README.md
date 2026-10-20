@@ -16,6 +16,12 @@ sACN (Streaming ACN / ANSI E1.31) is a network protocol for transmitting DMX512 
 - ✅ Cross-platform (.NET 8.0, 9.0, 10.0)
 - ✅ Reactive extensions support
 
+## Upgrading from 2.x
+
+3.0 has breaking changes: received packets are reused once your callback returns (queue
+`p.Clone()`), terminated streams are delivered, arguments are validated, and universe discovery
+now interoperates. See the [3.0 release notes](https://github.com/HakanL/Haukcode.sACN/releases).
+
 ## Quick Start
 
 ### Receiving DMX Data
