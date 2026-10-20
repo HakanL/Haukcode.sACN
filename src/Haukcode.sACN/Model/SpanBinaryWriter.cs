@@ -1,5 +1,5 @@
 using System;
-using System.Text;
+using System.Text.Unicode;
 
 namespace Haukcode.sACN.Model
 {
@@ -49,13 +49,21 @@ namespace Haukcode.sACN.Model
             this.writePosition += bytes.Length;
         }
 
+        /// <summary>
+        /// Write a fixed-width, NUL-terminated UTF-8 string field. A value that doesn't fit is cut
+        /// to <paramref name="length"/> - 1 bytes on a character boundary, so the field always
+        /// ends in at least one NUL.
+        /// </summary>
         public void WriteString(string value, int length)
         {
-            // Encode the string directly into the buffer
-            int bytesWritten = Encoding.UTF8.GetBytes(value, this.buffer.Slice(this.writePosition, length));
+            var field = this.buffer.Slice(this.writePosition, length);
+
+            // Encode the string directly into the buffer. FromUtf16 stops before a character that
+            // doesn't fit instead of splitting it.
+            Utf8.FromUtf16(value, field[..(length - 1)], out _, out int bytesWritten);
 
             // Fill the remaining bytes with zero
-            this.buffer.Slice(this.writePosition + bytesWritten, length - bytesWritten).Clear();
+            field[bytesWritten..].Clear();
 
             this.writePosition += length;
         }

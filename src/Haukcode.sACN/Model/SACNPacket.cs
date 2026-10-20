@@ -11,6 +11,15 @@ namespace Haukcode.sACN.Model
         public const int MAX_PACKET_SIZE = 638;
 
         /// <summary>
+        /// Universes (and synchronization addresses) E1.31 allows; 0 and 64000-65535 are reserved.
+        /// </summary>
+        public const ushort MinUniverse = 1;
+        public const ushort MaxUniverse = 63999;
+
+        public const byte MaxPriority = 200;
+        public const byte DefaultPriority = 100;
+
+        /// <summary>
         /// A universe discovery page with the full 512 universes: 120 header bytes plus 2 per universe.
         /// </summary>
         public const int MAX_UNIVERSE_DISCOVERY_PACKET_SIZE = 120 + (UniverseDiscoveryFramingLayer.MaxUniversesPerPage * 2);

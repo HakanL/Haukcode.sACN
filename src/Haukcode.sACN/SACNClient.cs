@@ -274,12 +274,12 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// Send data
     /// </summary>
     /// <param name="address">The optional address to unicast to</param>
-    /// <param name="universeId">The Universe ID</param>
+    /// <param name="universeId">The Universe ID, 1-63999</param>
     /// <param name="dmxData">Up to 512 bytes of DMX data</param>
-    /// <param name="syncAddress">Sync universe id</param>
+    /// <param name="syncAddress">Sync universe id, 1-63999, or 0 for none</param>
     /// <param name="startCode">Start code (default 0)</param>
     /// <param name="important">Important</param>
-    /// <param name="priority">Priority (default 100)</param>
+    /// <param name="priority">Priority 0-200 (default 100)</param>
     /// <param name="terminate">Terminate</param>
     public Task SendDmxData(
         IPAddress? address,
@@ -291,6 +291,14 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         bool important = false,
         bool terminate = false)
     {
+        CheckUniverse(universeId, nameof(universeId));
+        if (syncAddress != 0)
+            CheckUniverse(syncAddress, nameof(syncAddress));
+        if (priority > SACNPacket.MaxPriority)
+            throw new ArgumentOutOfRangeException(nameof(priority), priority, $"Priority must be 0-{SACNPacket.MaxPriority}");
+        if (dmxData.Length > DMPLayer.MaxSlots)
+            throw new ArgumentOutOfRangeException(nameof(dmxData), dmxData.Length, $"At most {DMPLayer.MaxSlots} slots");
+
         if (!IsOperational)
             return Task.CompletedTask;
 
@@ -310,6 +318,8 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// <param name="syncAddress">Sync universe id</param>
     public Task SendSync(IPAddress? address, ushort syncAddress)
     {
+        CheckUniverse(syncAddress, nameof(syncAddress));
+
         if (!IsOperational)
             return Task.CompletedTask;
 
@@ -508,6 +518,12 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             sendDataFactory: () => new SendData(destination),
             packetWriter: packet.WriteToBuffer);
 
+    }
+
+    private static void CheckUniverse(ushort universeId, string paramName)
+    {
+        if (universeId < SACNPacket.MinUniverse || universeId > SACNPacket.MaxUniverse)
+            throw new ArgumentOutOfRangeException(paramName, universeId, $"Universe must be {SACNPacket.MinUniverse}-{SACNPacket.MaxUniverse}");
     }
 
     private byte GetNewSequenceId(ushort universeId)

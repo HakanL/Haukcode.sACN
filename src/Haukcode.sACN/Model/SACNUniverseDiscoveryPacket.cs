@@ -50,6 +50,8 @@ namespace Haukcode.sACN.Model
         public static IReadOnlyList<SACNUniverseDiscoveryPacket> CreatePages(Guid uuid, string sourceName, IEnumerable<ushort> universes)
         {
             var sorted = (universes ?? []).Distinct().Order().ToArray();
+            if (sorted.Length > 0 && (sorted[0] < MinUniverse || sorted[^1] > MaxUniverse))
+                throw new ArgumentOutOfRangeException(nameof(universes), $"Universes must be {MinUniverse}-{MaxUniverse}");
             int pageCount = Math.Max(1, (sorted.Length + UniverseDiscoveryFramingLayer.MaxUniversesPerPage - 1) / UniverseDiscoveryFramingLayer.MaxUniversesPerPage);
 
             // 65536 universes fill 128 pages, so the page numbers always fit in a byte

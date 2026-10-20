@@ -30,6 +30,9 @@ namespace Haukcode.sACN.Model
 
         public int WriteToBuffer(Memory<byte> buffer)
         {
+            if (Data.Length > MaxSlots)
+                throw new InvalidOperationException($"A DMP layer holds at most {MaxSlots} slots, got {Data.Length}");
+
             var writer = new SpanBinaryWriter(buffer.Span);
 
             ushort flagsAndDMPLength = (ushort)(SACNPacket.FLAGS | Length);
