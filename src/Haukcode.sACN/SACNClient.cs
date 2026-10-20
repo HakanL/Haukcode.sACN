@@ -280,7 +280,16 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// <param name="startCode">Start code (default 0)</param>
     /// <param name="important">Important</param>
     /// <param name="priority">Priority 0-200 (default 100)</param>
-    /// <param name="terminate">Terminate</param>
+    /// <param name="terminate">
+    /// Terminate the stream for this universe. E1.31 requires three packets with the
+    /// Stream_Terminated bit, so three are sent; stop sending to the universe afterwards.
+    /// </param>
+    /// <param name="preview">Preview_Data: the data is for visualizers, not for live output</param>
+    /// <param name="forceSynchronization">
+    /// Force_Synchronization, only sent when <paramref name="syncAddress"/> is set: true (the
+    /// default) lets receivers carry on unsynchronized if the sync packets stop, false makes them
+    /// hold the last frame until synchronization resumes.
+    /// </param>
     public Task SendDmxData(
         IPAddress? address,
         ushort universeId,
@@ -289,7 +298,9 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         ushort syncAddress = 0,
         byte startCode = 0,
         bool important = false,
-        bool terminate = false)
+        bool terminate = false,
+        bool preview = false,
+        bool forceSynchronization = true)
     {
         CheckUniverse(universeId, nameof(universeId));
         if (syncAddress != 0)
@@ -302,11 +313,34 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         if (!IsOperational)
             return Task.CompletedTask;
 
+        if (terminate)
+        {
+            // Each call serializes the scratch packet before it returns, so the three can be
+            // queued back to back before awaiting any of them
+            var sends = new Task[TerminationPacketCount];
+            for (int i = 0; i < sends.Length; i++)
+            {
+                sends[i] = QueueDmxData(address, universeId, dmxData, priority, syncAddress, startCode, important, terminate, preview, forceSynchronization);
+            }
+
+            return Task.WhenAll(sends);
+        }
+
+        return QueueDmxData(address, universeId, dmxData, priority, syncAddress, startCode, important, terminate, preview, forceSynchronization);
+    }
+
+    /// <summary>
+    /// E1.31 section 6.2.6: a source terminating a stream sends three packets with Stream_Terminated set.
+    /// </summary>
+    private const int TerminationPacketCount = 3;
+
+    private Task QueueDmxData(IPAddress? address, ushort universeId, ReadOnlyMemory<byte> dmxData, byte priority, ushort syncAddress, byte startCode, bool important, bool terminate, bool preview, bool forceSynchronization)
+    {
         byte sequenceId = GetNewSequenceId(universeId);
 
         // Reconfigure the reused scratch packet in place instead of allocating a new one
         // (and its three nested layers) for every packet on the hot send path.
-        this.scratchDataPacket.Update(universeId, sequenceId, dmxData, priority, syncAddress, startCode, terminate);
+        this.scratchDataPacket.Update(universeId, sequenceId, dmxData, priority, syncAddress, startCode, terminate, preview, forceSynchronization);
 
         return QueuePacketForSending(universeId, address, this.scratchDataPacket, important);
     }
@@ -596,11 +630,10 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         // Note that we're still using the memory from the receive buffer here, the packet is not allocating its own DMX data byte array
         if (packet != null)
         {
+            // Stream_Terminated packets are delivered too, so the consumer can drop the source
+            // straight away instead of waiting out the data loss timeout. E1.31 says to ignore
+            // their DMX data, so consumers check Options.StreamTerminated before applying it.
             var dataFramingLayer = packet.FramingLayer as DataFramingLayer;
-
-            if (dataFramingLayer?.Options.StreamTerminated == true)
-                // Ignore the terminate packets
-                return null;
 
             // Data packets land in the scratch graph, so their wrapper can be scratch too. Other
             // packet types (sync, discovery) are rare and allocated, and get a fresh wrapper so a

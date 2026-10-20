@@ -114,6 +114,13 @@ await foreach (var packet in channel.Reader.ReadAllAsync())
     var dataLayer = packet.Packet.RootLayer.FramingLayer as DataFramingLayer;
     if (dataLayer != null)
     {
+        if (dataLayer.Options.StreamTerminated)
+        {
+            // The source stopped sending this universe; ignore the data in this packet
+            Console.WriteLine($"Universe {dataLayer.UniverseId}: {dataLayer.SourceName} terminated");
+            continue;
+        }
+
         Console.WriteLine($"Universe {dataLayer.UniverseId}: {dataLayer.DMPLayer.Data.Length} channels");
     }
 }
@@ -291,7 +298,7 @@ public class DMXSender
 
     public async Task TerminateStream()
     {
-        // Send termination packet
+        // Send the termination packets (three, as E1.31 requires)
         await client.SendDmxData(
             address: null,
             universeId: 1,
@@ -390,7 +397,9 @@ Task SendDmxData(
     ushort syncAddress = 0,  // Sync universe (0 = no sync)
     byte startCode = 0,      // Start code (0 = standard DMX)
     bool important = false,  // Priority queue flag
-    bool terminate = false)  // Stream termination flag
+    bool terminate = false,  // Terminate the stream (sends three packets)
+    bool preview = false,    // Preview_Data: for visualizers, not live output
+    bool forceSynchronization = true)  // With a sync address: carry on unsynchronized if sync stops
 
 // Send sync packet
 Task SendSync(
@@ -461,16 +470,21 @@ if (dataLayer != null)
 
 ### Stream Termination
 
-Properly terminate streams when done:
+Properly terminate streams when done. `terminate: true` sends the three packets with the
+Stream_Terminated bit that E1.31 requires; stop sending to the universe afterwards.
 
 ```csharp
-// Send termination packet for a universe
+// Send the termination packets for a universe
 await client.SendDmxData(
     address: null,
     universeId: 1,
     dmxData: Array.Empty<byte>(),
     terminate: true);
 ```
+
+Received termination packets are delivered to the channel writer. Check
+`DataFramingLayer.Options.StreamTerminated` and treat the source as gone for that universe;
+E1.31 says to ignore the DMX data in these packets.
 
 ### Multiple Network Interfaces
 

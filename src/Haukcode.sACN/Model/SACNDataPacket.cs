@@ -31,7 +31,12 @@ namespace Haukcode.sACN.Model
         /// synchronously before the next call. Every mutable field is written (including options
         /// reset to their defaults) so no state leaks between frames.
         /// </summary>
-        public void Update(ushort universeId, byte sequenceId, ReadOnlyMemory<byte> data, byte priority, ushort syncAddress = 0, byte startCode = 0, bool terminate = false)
+        /// <param name="forceSynchronization">
+        /// Force_Synchronization, only sent when <paramref name="syncAddress"/> is set: true lets
+        /// receivers carry on unsynchronized if the sync packets stop, false makes them hold the
+        /// last frame until synchronization resumes.
+        /// </param>
+        public void Update(ushort universeId, byte sequenceId, ReadOnlyMemory<byte> data, byte priority, ushort syncAddress = 0, byte startCode = 0, bool terminate = false, bool preview = false, bool forceSynchronization = true)
         {
             var framingLayer = DataFramingLayer;
             framingLayer.UniverseId = universeId;
@@ -44,9 +49,9 @@ namespace Haukcode.sACN.Model
             dmpLayer.StartCode = startCode;
 
             var options = framingLayer.Options;
-            options.PreviewData = false;
+            options.PreviewData = preview;
             options.StreamTerminated = terminate;
-            options.ForceSynchronization = syncAddress != 0;
+            options.ForceSynchronization = syncAddress != 0 && forceSynchronization;
         }
     }
 }
