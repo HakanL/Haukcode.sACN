@@ -156,5 +156,23 @@ namespace Haukcode.sACN.Test
 
             Assert.Null(SACNPacket.Parse(buffer));
         }
+
+        [Fact]
+        public void ChangingThePublicPacketIdentifier_DoesNotAffectTheLibrary()
+        {
+            byte original = RootLayer.PACKET_IDENTIFIER[0];
+            try
+            {
+                RootLayer.PACKET_IDENTIFIER[0] = (byte)'X';
+
+                var buffer = DataPacket();
+                Assert.Equal((byte)'A', buffer[4]);
+                Assert.IsType<SACNDataPacket>(SACNPacket.Parse(buffer));
+            }
+            finally
+            {
+                RootLayer.PACKET_IDENTIFIER[0] = original;
+            }
+        }
     }
 }

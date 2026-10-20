@@ -9,10 +9,16 @@ namespace Haukcode.sACN.Model
     {
         public const ushort PREAMBLE_LENGTH = 0x0010;
         public const ushort POSTAMBLE_LENGTH = 0x0000;
+        /// <summary>
+        /// The ACN packet identifier, "ASC-E1.17" padded to 12 bytes. The library uses its own
+        /// copy, so changing this array doesn't affect parsing or writing.
+        /// </summary>
         public static readonly byte[] PACKET_IDENTIFIER = new byte[] {
             0x41, 0x53, 0x43, 0x2d, 0x45,
             0x31, 0x2e, 0x31, 0x37, 0x00,
             0x00, 0x00};
+        private static ReadOnlySpan<byte> PacketIdentifier => "ASC-E1.17\0\0\0"u8;
+
         public const uint VECTOR_ROOT_E131_DATA = 0x00000004;
         public const uint VECTOR_ROOT_E131_EXTENDED = 0x00000008;
 
@@ -62,7 +68,7 @@ namespace Haukcode.sACN.Model
 
             writer.WriteUInt16(PREAMBLE_LENGTH);
             writer.WriteUInt16(POSTAMBLE_LENGTH);
-            writer.WriteBytes(PACKET_IDENTIFIER);
+            writer.WriteBytes(PacketIdentifier);
             ushort flagsAndRootLength = (ushort)(SACNPacket.FLAGS | (ushort)(Length - 16));
             writer.WriteUInt16(flagsAndRootLength);
             writer.WriteUInt32(FramingLayer.RootVector);
@@ -90,7 +96,7 @@ namespace Haukcode.sACN.Model
             // bytes into fresh arrays, which was two allocations on every received packet
             if (preambleLength != PREAMBLE_LENGTH ||
                 postambleLength != POSTAMBLE_LENGTH ||
-                !reader.ReadSlice(PACKET_IDENTIFIER.Length).Span.SequenceEqual(PACKET_IDENTIFIER))
+                !reader.ReadSlice(PacketIdentifier.Length).Span.SequenceEqual(PacketIdentifier))
             {
                 return null;
             }

@@ -363,14 +363,18 @@ await client.SendSync(null, syncUniverse);
 
 ### Trigger Universes
 
-Listen for sync packets on specific universes without receiving the full DMX data:
+Join a universe as a trigger (for example a sync address) rather than as DMX input. Both
+join the universe's multicast group, so everything sent to it is delivered, data and sync
+packets alike; the difference is the `SubscribeMode` on each received packet, so you can tell
+why it arrived. A sync packet carries the subscription of its sync address.
 
 ```csharp
-// Join universe as trigger listener only
+// Join universe 7000 as a trigger listener
 client.JoinDMXUniverseForTrigger(7000);
 
-// This will receive sync packets but not full DMX data
-// Useful for timing/synchronization without processing full data streams
+// In the channel writer
+if (p.Packet.FramingLayer is SyncFramingLayer sync && p.SubscribeMode.HasFlag(SubscribeModes.Trigger))
+    OnSync(sync.SyncAddress);
 ```
 
 ## API Reference

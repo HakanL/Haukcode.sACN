@@ -81,5 +81,32 @@ namespace Haukcode.sACN.Test
             client.DropAllInputUniverses();
             client.JoinDMXUniverse(7);
         }
+
+        [Fact]
+        public async Task SyncPackets_CarryTheSubscriptionOfTheirSyncAddress()
+        {
+            var modes = new ConcurrentQueue<SubscribeModes>();
+            using var client = new SACNClient(
+                Guid.NewGuid(),
+                "Test",
+                IPAddress.Loopback,
+                channelWriter: p =>
+                {
+                    if (p.Packet.FramingLayer is SyncFramingLayer sync && sync.SyncAddress == 7000)
+                        modes.Enqueue(p.SubscribeMode);
+
+                    return Task.CompletedTask;
+                },
+                port: TestPorts.GetFreeUdpPort());
+
+            client.JoinDMXUniverseForTrigger(7000);
+            await client.SendSync(IPAddress.Loopback, 7000);
+
+            for (int i = 0; i < 100 && modes.IsEmpty; i++)
+                await Task.Delay(20, TestContext.Current.CancellationToken);
+
+            Assert.True(modes.TryDequeue(out var mode));
+            Assert.Equal(SubscribeModes.Trigger, mode);
+        }
     }
 }

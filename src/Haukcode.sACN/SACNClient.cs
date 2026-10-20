@@ -332,7 +332,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// <param name="dmxData">Up to 512 bytes of DMX data</param>
     /// <param name="syncAddress">Sync universe id, 1-63999, or 0 for none</param>
     /// <param name="startCode">Start code (default 0)</param>
-    /// <param name="important">Important</param>
+    /// <param name="important">Never dropped by the send queue's age cut-off or bound (termination packets always are)</param>
     /// <param name="priority">Priority 0-200 (default 100)</param>
     /// <param name="terminate">
     /// Terminate the stream for this universe. E1.31 requires three packets with the
@@ -372,11 +372,12 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             if (terminate)
             {
                 // Each call serializes the scratch packet before it returns, so the three can be
-                // queued back to back before awaiting any of them
+                // queued back to back before awaiting any of them. Always important: receivers
+                // rely on them to drop the source, so the age cut-off and queue bound mustn't.
                 var sends = new Task[TerminationPacketCount];
                 for (int i = 0; i < sends.Length; i++)
                 {
-                    sends[i] = QueueDmxData(address, universeId, dmxData, priority, syncAddress, startCode, important, terminate, preview, forceSynchronization);
+                    sends[i] = QueueDmxData(address, universeId, dmxData, priority, syncAddress, startCode, important: true, terminate, preview, forceSynchronization);
                 }
 
                 return Task.WhenAll(sends);
@@ -664,7 +665,13 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             parsedObject.TimestampMS = timestampMS;
             parsedObject.Source = sourceIP;
             parsedObject.Packet = packet;
-            parsedObject.SubscribeMode = dataFramingLayer != null ? this.subscriptions[dataFramingLayer.UniverseId] : SubscribeModes.None;
+            // Sync packets go to their sync address's multicast group, so they carry that subscription
+            parsedObject.SubscribeMode = packet.FramingLayer switch
+            {
+                DataFramingLayer data => this.subscriptions[data.UniverseId],
+                SyncFramingLayer sync => this.subscriptions[sync.SyncAddress],
+                _ => SubscribeModes.None
+            };
 
             // Multicast destinations are reported as null, unicast ones as the endpoint
             if (!this.receiveDestinationCache.TryGetValue(destinationIP, out var destination))
