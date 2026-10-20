@@ -79,16 +79,21 @@ namespace Haukcode.sACN.Model
             return writer.BytesWritten;
         }
 
-        internal static UniverseDiscoveryFramingLayer Parse(BigEndianBinaryReader reader, ushort flagsAndFramingLength, uint vector)
+        /// <summary>
+        /// Parse the rest of the layer; RootLayer has read and checked its flags, length and vector.
+        /// </summary>
+        internal static UniverseDiscoveryFramingLayer Parse(BigEndianBinaryReader reader, int framingLength)
         {
-            ushort flags = (ushort)(flagsAndFramingLength & SACNPacket.FIRST_FOUR_BITS_MASK);
-            Debug.Assert(flags == SACNPacket.FLAGS);
-            Debug.Assert(vector == VECTOR_E131_EXTENDED_DISCOVERY);
+            if (framingLength < FramingHeaderLength + DiscoveryHeaderLength)
+                throw new InvalidDataException("Truncated universe discovery framing layer");
 
             string sourceName = reader.ReadString(SourceNameLength);
             reader.ReadUInt32();
 
-            ushort flagsAndDiscoveryLength = reader.ReadUInt16();
+            int discoveryLength = SACNPacket.ReadPduLength(reader.ReadUInt16(), "universe discovery layer");
+            if (discoveryLength != framingLength - FramingHeaderLength)
+                throw new InvalidDataException($"Universe discovery layer length {discoveryLength} doesn't match the framing layer");
+
             uint discoveryVector = reader.ReadUInt32();
             if (discoveryVector != VECTOR_UNIVERSE_DISCOVERY_UNIVERSE_LIST)
                 throw new InvalidDataException($"Unknown universe discovery vector {discoveryVector}");
@@ -96,7 +101,6 @@ namespace Haukcode.sACN.Model
             byte page = reader.ReadByte();
             byte lastPage = reader.ReadByte();
 
-            int discoveryLength = flagsAndDiscoveryLength & SACNPacket.LAST_TWELVE_BITS_MASK;
             int universeBytes = discoveryLength - DiscoveryHeaderLength;
             if (universeBytes < 0 || (universeBytes % 2) != 0 || universeBytes > MaxUniversesPerPage * 2)
                 throw new InvalidDataException("Invalid universe discovery payload length");

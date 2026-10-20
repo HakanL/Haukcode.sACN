@@ -62,9 +62,12 @@ namespace Haukcode.sACN.Model
     {
         public const int SourceNameLength = 64;
 
+        // Flags and Length, Vector, Source Name, Priority, Sync Address, Sequence, Options, Universe
+        internal const int HeaderLength = 2 + 4 + SourceNameLength + 1 + 2 + 1 + 1 + 2;
+
         public DMPLayer DMPLayer { get; set; } = null!;
 
-        public override ushort Length { get { return (ushort)(13 + SourceNameLength + DMPLayer.Length); } }
+        public override ushort Length { get { return (ushort)(HeaderLength + DMPLayer.Length); } }
 
         public string SourceName { get; set; } = null!;
 
@@ -110,25 +113,24 @@ namespace Haukcode.sACN.Model
             return writer.BytesWritten + DMPLayer.WriteToBuffer(buffer.Slice(writer.BytesWritten));
         }
 
-        internal static DataFramingLayer Parse(BigEndianBinaryReader reader)
-        {
-            return Parse(reader, scratchFramingLayer: null);
-        }
-
         /// <summary>
         /// Parse, filling <paramref name="scratchFramingLayer"/> (and its DMPLayer/Options) in
         /// place when provided; every mutable field is rewritten so no state leaks between
         /// packets. SourceName strings come from the interner either way.
         /// </summary>
-        internal static DataFramingLayer Parse(BigEndianBinaryReader reader, DataFramingLayer? scratchFramingLayer)
+        internal static DataFramingLayer Parse(BigEndianBinaryReader reader, int framingLength, DataFramingLayer? scratchFramingLayer)
         {
-            ushort flagsAndFramingLength = reader.ReadUInt16();
-            ushort flags = (ushort)(flagsAndFramingLength & SACNPacket.FIRST_FOUR_BITS_MASK);
-            Debug.Assert(flags == SACNPacket.FLAGS);
-            ushort length = (ushort)(flagsAndFramingLength & SACNPacket.LAST_TWELVE_BITS_MASK);
+            if (framingLength < HeaderLength)
+                throw new InvalidDataException("Truncated data framing layer");
+
+            int framingPduLength = SACNPacket.ReadPduLength(reader.ReadUInt16(), "framing layer");
+            if (framingPduLength != framingLength)
+                throw new InvalidDataException($"Framing layer length {framingPduLength} doesn't match the root layer ({framingLength})");
 
             uint vector = reader.ReadUInt32();
-            Debug.Assert(vector == VECTOR_E131_DATA_PACKET);
+            if (vector != VECTOR_E131_DATA_PACKET)
+                throw new InvalidDataException($"Unknown data framing vector {vector}");
+
             string sourceName = SourceNameInterner.Read(reader, SourceNameLength);
             byte priority = reader.ReadByte();
             ushort syncAddress = reader.ReadUInt16();
@@ -137,11 +139,13 @@ namespace Haukcode.sACN.Model
 
             ushort universeID = reader.ReadUInt16();
 
+            int dmpLength = framingLength - HeaderLength;
+
             if (scratchFramingLayer != null)
             {
                 scratchFramingLayer.SequenceId = sequenceID;
                 scratchFramingLayer.SourceName = sourceName;
-                DMPLayer.Parse(reader, scratchFramingLayer.DMPLayer);
+                DMPLayer.Parse(reader, dmpLength, scratchFramingLayer.DMPLayer);
                 scratchFramingLayer.Options.SetFrom(optionsByte);
                 scratchFramingLayer.UniverseId = universeID;
                 scratchFramingLayer.Priority = priority;
@@ -154,7 +158,7 @@ namespace Haukcode.sACN.Model
             {
                 SequenceId = sequenceID,
                 SourceName = sourceName,
-                DMPLayer = DMPLayer.Parse(reader),
+                DMPLayer = DMPLayer.Parse(reader, dmpLength, null),
                 Options = FramingOptions.Parse(optionsByte),
                 UniverseId = universeID,
                 Priority = priority,

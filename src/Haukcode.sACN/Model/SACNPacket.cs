@@ -17,6 +17,17 @@ namespace Haukcode.sACN.Model
 
         public RootLayer RootLayer { get; set; }
 
+        /// <summary>
+        /// Check a PDU's flags (always 0x7 in E1.31) and return the length in its low 12 bits.
+        /// </summary>
+        internal static int ReadPduLength(ushort flagsAndLength, string layer)
+        {
+            if ((flagsAndLength & FIRST_FOUR_BITS_MASK) != FLAGS)
+                throw new InvalidDataException($"Invalid {layer} flags 0x{flagsAndLength >> 12:X}");
+
+            return flagsAndLength & LAST_TWELVE_BITS_MASK;
+        }
+
         public FramingLayer FramingLayer => RootLayer.FramingLayer;
 
         public Guid UUID { get { return RootLayer.UUID; } set { RootLayer.UUID = value; } }
@@ -35,7 +46,12 @@ namespace Haukcode.sACN.Model
             return RootLayer.WriteToBuffer(outputBuffer);
         }
 
-        public static SACNPacket Parse(ReadOnlyMemory<byte> inputBuffer)
+        /// <summary>
+        /// Parse a packet. Returns null for a datagram that isn't an E1.31 packet, or uses a
+        /// root or extended framing vector this library doesn't know; E1.31 says to discard
+        /// those. Throws InvalidDataException for a packet that claims to be E1.31 but is malformed.
+        /// </summary>
+        public static SACNPacket? Parse(ReadOnlyMemory<byte> inputBuffer)
         {
             return Parse(inputBuffer, scratchDataPacket: null);
         }
@@ -47,12 +63,14 @@ namespace Haukcode.sACN.Model
         /// scratch instance is returned with every mutable field rewritten; its DMPLayer.Data is
         /// a slice of <paramref name="inputBuffer"/>, so both are only valid until the caller's
         /// next parse or buffer reuse. Non-data packets (sync, discovery — rare) allocate as
-        /// before. Pass null to always allocate.
+        /// before. Pass null to always allocate. Returns null, or throws, as the overload above.
         /// </summary>
-        public static SACNPacket Parse(ReadOnlyMemory<byte> inputBuffer, SACNDataPacket? scratchDataPacket)
+        public static SACNPacket? Parse(ReadOnlyMemory<byte> inputBuffer, SACNDataPacket? scratchDataPacket)
         {
             var reader = new BigEndianBinaryReader(inputBuffer);
-            var rootLayer = RootLayer.Parse(reader, scratchDataPacket?.RootLayer);
+            var rootLayer = RootLayer.Parse(reader, inputBuffer.Length, scratchDataPacket?.RootLayer);
+            if (rootLayer == null)
+                return null;
 
             if (scratchDataPacket != null && ReferenceEquals(rootLayer, scratchDataPacket.RootLayer))
                 return scratchDataPacket;

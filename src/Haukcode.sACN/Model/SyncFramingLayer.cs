@@ -40,21 +40,14 @@ namespace Haukcode.sACN.Model
             return writer.BytesWritten;
         }
 
-        internal static SyncFramingLayer Parse(BigEndianBinaryReader reader)
+        /// <summary>
+        /// Parse the rest of the layer; RootLayer has read and checked its flags, length and vector.
+        /// </summary>
+        internal static SyncFramingLayer Parse(BigEndianBinaryReader reader, int framingLength)
         {
-            ushort flagsAndFramingLength = reader.ReadUInt16();
-            uint vector = reader.ReadUInt32();
+            if (framingLength != 11)
+                throw new InvalidDataException($"Invalid synchronization framing layer length {framingLength}");
 
-            return Parse(reader, flagsAndFramingLength, vector);
-        }
-
-        internal static SyncFramingLayer Parse(BigEndianBinaryReader reader, ushort flagsAndFramingLength, uint vector)
-        {
-            ushort flags = (ushort)(flagsAndFramingLength & SACNPacket.FIRST_FOUR_BITS_MASK);
-            Debug.Assert(flags == SACNPacket.FLAGS);
-            ushort length = (ushort)(flagsAndFramingLength & SACNPacket.LAST_TWELVE_BITS_MASK);
-
-            Debug.Assert(vector == VECTOR_E131_EXTENDED_SYNCHRONIZATION);
             byte sequenceID = reader.ReadByte();
             ushort syncAddress = reader.ReadUInt16();
             ushort reserved = reader.ReadUInt16();

@@ -16,9 +16,12 @@ namespace Haukcode.sACN.Model
         public const uint VECTOR_ROOT_E131_DATA = 0x00000004;
         public const uint VECTOR_ROOT_E131_EXTENDED = 0x00000008;
 
+        // Preamble, postamble, identifier, flags and length, vector, CID
+        internal const int HeaderLength = 38;
+
         public FramingLayer FramingLayer { get; set; } = null!;
 
-        public ushort Length { get { return (ushort)(38 + FramingLayer.Length); } }
+        public ushort Length { get { return (ushort)(HeaderLength + FramingLayer.Length); } }
 
         public Guid UUID { get; set; }
 
@@ -68,39 +71,41 @@ namespace Haukcode.sACN.Model
             return writer.BytesWritten + FramingLayer.WriteToBuffer(buffer.Slice(writer.BytesWritten));
         }
 
-        internal static RootLayer Parse(BigEndianBinaryReader reader)
-        {
-            return Parse(reader, scratchRootLayer: null);
-        }
-
         /// <summary>
         /// Parse, filling <paramref name="scratchRootLayer"/> in place when the packet is a DATA
         /// packet and the scratch carries a DataFramingLayer (see SACNPacket.Parse). Other packet
-        /// types allocate as before.
+        /// types allocate as before. Returns null for a datagram that isn't an E1.31 packet, or
+        /// uses a root or extended framing vector we don't know: E1.31 says to discard those.
+        /// Throws InvalidDataException for a packet that claims to be E1.31 but is malformed.
         /// </summary>
-        internal static RootLayer Parse(BigEndianBinaryReader reader, RootLayer? scratchRootLayer)
+        internal static RootLayer? Parse(BigEndianBinaryReader reader, int datagramLength, RootLayer? scratchRootLayer)
         {
-            ushort preambleLength = reader.ReadUInt16();
-            if (preambleLength != PREAMBLE_LENGTH)
-                throw new InvalidDataException("preambleLength != PREAMBLE_LENGTH");
+            if (datagramLength < 16)
+                return null;
 
+            ushort preambleLength = reader.ReadUInt16();
             ushort postambleLength = reader.ReadUInt16();
-            if (postambleLength != POSTAMBLE_LENGTH)
-                throw new InvalidDataException("postambleLength != POSTAMBLE_LENGTH");
 
             // Span compare and span-constructed Guid: the reader's VerifyBytes/ReadGuid copy the
             // bytes into fresh arrays, which was two allocations on every received packet
-            if (!reader.ReadSlice(PACKET_IDENTIFIER.Length).Span.SequenceEqual(PACKET_IDENTIFIER))
-                throw new InvalidDataException("packetIdentifier != PACKET_IDENTIFIER");
+            if (preambleLength != PREAMBLE_LENGTH ||
+                postambleLength != POSTAMBLE_LENGTH ||
+                !reader.ReadSlice(PACKET_IDENTIFIER.Length).Span.SequenceEqual(PACKET_IDENTIFIER))
+            {
+                return null;
+            }
 
-            ushort flagsAndRootLength = reader.ReadUInt16();
-            ushort flags = (ushort)(flagsAndRootLength & SACNPacket.FIRST_FOUR_BITS_MASK);
-            if (flags != SACNPacket.FLAGS)
-                throw new InvalidDataException("flags != SACNPacket.FLAGS");
+            if (datagramLength < HeaderLength)
+                throw new InvalidDataException("Truncated root layer");
 
-            ushort length = (ushort)(flagsAndRootLength & SACNPacket.LAST_TWELVE_BITS_MASK);
+            int rootLength = SACNPacket.ReadPduLength(reader.ReadUInt16(), "root layer");
+            if (rootLength < HeaderLength - 16 || rootLength > datagramLength - 16)
+                throw new InvalidDataException($"Root layer length {rootLength} doesn't fit a {datagramLength} byte datagram");
+
             uint vector = reader.ReadUInt32();
             Guid cid = new Guid(reader.ReadSlice(16).Span, bigEndian: true);
+
+            int framingLength = rootLength - (HeaderLength - 16);
 
             switch (vector)
             {
@@ -108,7 +113,7 @@ namespace Haukcode.sACN.Model
                     if (scratchRootLayer?.FramingLayer is DataFramingLayer scratchFramingLayer)
                     {
                         scratchRootLayer.UUID = cid;
-                        DataFramingLayer.Parse(reader, scratchFramingLayer);
+                        DataFramingLayer.Parse(reader, framingLength, scratchFramingLayer);
 
                         return scratchRootLayer;
                     }
@@ -116,20 +121,29 @@ namespace Haukcode.sACN.Model
                     return new RootLayer
                     {
                         UUID = cid,
-                        FramingLayer = DataFramingLayer.Parse(reader)
+                        FramingLayer = DataFramingLayer.Parse(reader, framingLength, null)
                     };
 
                 case VECTOR_ROOT_E131_EXTENDED:
                     {
-                        ushort flagsAndFramingLength = reader.ReadUInt16();
+                        if (framingLength < 6)
+                            throw new InvalidDataException("Truncated extended framing layer");
+
+                        int framingPduLength = SACNPacket.ReadPduLength(reader.ReadUInt16(), "framing layer");
+                        if (framingPduLength != framingLength)
+                            throw new InvalidDataException($"Framing layer length {framingPduLength} doesn't match the root layer ({framingLength})");
+
                         uint framingVector = reader.ReadUInt32();
 
-                        FramingLayer framingLayer = framingVector switch
+                        FramingLayer? framingLayer = framingVector switch
                         {
-                            FramingLayer.VECTOR_E131_EXTENDED_SYNCHRONIZATION => SyncFramingLayer.Parse(reader, flagsAndFramingLength, framingVector),
-                            FramingLayer.VECTOR_E131_EXTENDED_DISCOVERY => UniverseDiscoveryFramingLayer.Parse(reader, flagsAndFramingLength, framingVector),
-                            _ => throw new ArgumentException($"Unknown extended framing vector {framingVector}")
+                            FramingLayer.VECTOR_E131_EXTENDED_SYNCHRONIZATION => SyncFramingLayer.Parse(reader, framingLength),
+                            FramingLayer.VECTOR_E131_EXTENDED_DISCOVERY => UniverseDiscoveryFramingLayer.Parse(reader, framingLength),
+                            _ => null
                         };
+
+                        if (framingLayer == null)
+                            return null;
 
                         return new RootLayer
                         {
@@ -139,7 +153,7 @@ namespace Haukcode.sACN.Model
                     }
 
                 default:
-                    throw new ArgumentException($"Unknown vector {vector}");
+                    return null;
             }
         }
     }
