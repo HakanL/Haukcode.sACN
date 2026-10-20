@@ -27,13 +27,6 @@ namespace Haukcode.sACN.Model
             this.buffer[this.writePosition++] = value;
         }
 
-        public void WriteInt16(short value)
-        {
-            // High byte, Low byte
-            this.buffer[this.writePosition++] = (byte)(value >> 8);
-            this.buffer[this.writePosition++] = (byte)value;
-        }
-
         public void WriteUInt16(ushort value)
         {
             // High byte, Low byte
@@ -41,7 +34,7 @@ namespace Haukcode.sACN.Model
             this.buffer[this.writePosition++] = (byte)value;
         }
 
-        public void WriteInt32(int value)
+        public void WriteUInt32(uint value)
         {
             this.buffer[this.writePosition++] = (byte)(value >> 24);
             this.buffer[this.writePosition++] = (byte)(value >> 16);

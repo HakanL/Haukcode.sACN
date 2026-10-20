@@ -76,7 +76,7 @@ namespace Haukcode.sACN.Model
 
         public FramingOptions Options { get; set; } = null!;
 
-        public override int RootVector => RootLayer.VECTOR_ROOT_E131_DATA;
+        public override uint RootVector => RootLayer.VECTOR_ROOT_E131_DATA;
 
         public DataFramingLayer(string sourceName, ushort universeId, byte sequenceId, ReadOnlyMemory<byte> data, byte priority, ushort syncAddress = 0, byte startCode = 0)
             : base(sequenceId)
@@ -99,7 +99,7 @@ namespace Haukcode.sACN.Model
 
             ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
             writer.WriteUInt16(flagsAndFramingLength);
-            writer.WriteInt32(VECTOR_E131_DATA_PACKET);
+            writer.WriteUInt32(VECTOR_E131_DATA_PACKET);
             writer.WriteString(SourceName, 64);
             writer.WriteByte(Priority);
             writer.WriteUInt16(SyncAddress);
@@ -127,7 +127,7 @@ namespace Haukcode.sACN.Model
             Debug.Assert(flags == SACNPacket.FLAGS);
             ushort length = (ushort)(flagsAndFramingLength & SACNPacket.LAST_TWELVE_BITS_MASK);
 
-            int vector = reader.ReadInt32();
+            uint vector = reader.ReadUInt32();
             Debug.Assert(vector == VECTOR_E131_DATA_PACKET);
             string sourceName = SourceNameInterner.Read(reader, SourceNameLength);
             byte priority = reader.ReadByte();

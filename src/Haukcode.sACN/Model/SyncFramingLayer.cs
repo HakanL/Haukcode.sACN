@@ -14,7 +14,7 @@ namespace Haukcode.sACN.Model
 
         public ushort SyncAddress { get; set; }
 
-        public override int RootVector => RootLayer.VECTOR_ROOT_E131_EXTENDED;
+        public override uint RootVector => RootLayer.VECTOR_ROOT_E131_EXTENDED;
 
         public SyncFramingLayer(ushort syncAddress, byte sequenceID)
             : base(sequenceID)
@@ -32,7 +32,7 @@ namespace Haukcode.sACN.Model
 
             ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
             writer.WriteUInt16(flagsAndFramingLength);
-            writer.WriteInt32(VECTOR_E131_EXTENDED_SYNCHRONIZATION);
+            writer.WriteUInt32(VECTOR_E131_EXTENDED_SYNCHRONIZATION);
             writer.WriteByte(SequenceId);
             writer.WriteUInt16(SyncAddress);
             writer.WriteUInt16((ushort)0);
@@ -42,13 +42,13 @@ namespace Haukcode.sACN.Model
 
         internal static SyncFramingLayer Parse(BigEndianBinaryReader reader)
         {
-            ushort flagsAndFramingLength = (ushort)reader.ReadInt16();
-            int vector = reader.ReadInt32();
+            ushort flagsAndFramingLength = reader.ReadUInt16();
+            uint vector = reader.ReadUInt32();
 
             return Parse(reader, flagsAndFramingLength, vector);
         }
 
-        internal static SyncFramingLayer Parse(BigEndianBinaryReader reader, ushort flagsAndFramingLength, int vector)
+        internal static SyncFramingLayer Parse(BigEndianBinaryReader reader, ushort flagsAndFramingLength, uint vector)
         {
             ushort flags = (ushort)(flagsAndFramingLength & SACNPacket.FIRST_FOUR_BITS_MASK);
             Debug.Assert(flags == SACNPacket.FLAGS);

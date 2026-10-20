@@ -21,7 +21,7 @@ namespace Haukcode.sACN.Model
 
         public ushort[] Universes { get; set; } = Array.Empty<ushort>();
 
-        public override int RootVector => RootLayer.VECTOR_ROOT_E131_EXTENDED;
+        public override uint RootVector => RootLayer.VECTOR_ROOT_E131_EXTENDED;
 
         public UniverseDiscoveryFramingLayer(string sourceName, IEnumerable<ushort> universes, byte page = 0, byte lastPage = 0)
             : base(0)
@@ -43,9 +43,9 @@ namespace Haukcode.sACN.Model
 
             ushort flagsAndFramingLength = (ushort)(SACNPacket.FLAGS | Length);
             writer.WriteUInt16(flagsAndFramingLength);
-            writer.WriteInt32(VECTOR_E131_EXTENDED_DISCOVERY);
+            writer.WriteUInt32(VECTOR_E131_EXTENDED_DISCOVERY);
             writer.WriteString(SourceName, SourceNameLength);
-            writer.WriteInt32(0);
+            writer.WriteUInt32(0);
             writer.WriteByte(Page);
             writer.WriteByte(LastPage);
 
@@ -57,14 +57,14 @@ namespace Haukcode.sACN.Model
             return writer.BytesWritten;
         }
 
-        internal static UniverseDiscoveryFramingLayer Parse(BigEndianBinaryReader reader, ushort flagsAndFramingLength, int vector)
+        internal static UniverseDiscoveryFramingLayer Parse(BigEndianBinaryReader reader, ushort flagsAndFramingLength, uint vector)
         {
             ushort flags = (ushort)(flagsAndFramingLength & SACNPacket.FIRST_FOUR_BITS_MASK);
             Debug.Assert(flags == SACNPacket.FLAGS);
             Debug.Assert(vector == VECTOR_E131_EXTENDED_DISCOVERY);
 
             string sourceName = reader.ReadString(SourceNameLength);
-            reader.ReadInt32();
+            reader.ReadUInt32();
             byte page = reader.ReadByte();
             byte lastPage = reader.ReadByte();
 

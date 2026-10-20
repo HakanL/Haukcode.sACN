@@ -8,12 +8,12 @@ namespace Haukcode.sACN.Model
     {
         public const byte DMP_VECTOR = 2;
         public const byte ADDRESS_TYPE_AND_DATA_TYPE = 0xA1;
-        public const short FIRST_PROPERTY_ADDRESS = 0x00;
-        public const short ADDRESS_INCREMENT = 1;
+        public const ushort FIRST_PROPERTY_ADDRESS = 0x00;
+        public const ushort ADDRESS_INCREMENT = 1;
 
         public byte StartCode { get; set; }
 
-        public short Length { get { return (short)(11 + Data.Length); } }
+        public ushort Length { get { return (ushort)(11 + Data.Length); } }
 
         public ReadOnlyMemory<byte> Data { get; set; }
 
@@ -27,14 +27,14 @@ namespace Haukcode.sACN.Model
         {
             var writer = new SpanBinaryWriter(buffer.Span);
 
-            ushort flagsAndDMPLength = (ushort)(SACNDataPacket.FLAGS | (ushort)Length);
+            ushort flagsAndDMPLength = (ushort)(SACNPacket.FLAGS | Length);
 
             writer.WriteUInt16(flagsAndDMPLength);
             writer.WriteByte(DMP_VECTOR);
             writer.WriteByte(ADDRESS_TYPE_AND_DATA_TYPE);
-            writer.WriteInt16(FIRST_PROPERTY_ADDRESS);
-            writer.WriteInt16(ADDRESS_INCREMENT);
-            writer.WriteInt16((short)(Data.Length + 1));
+            writer.WriteUInt16(FIRST_PROPERTY_ADDRESS);
+            writer.WriteUInt16(ADDRESS_INCREMENT);
+            writer.WriteUInt16((ushort)(Data.Length + 1));
             writer.WriteByte(StartCode);
             writer.WriteBytes(Data.Span);
 
@@ -52,16 +52,16 @@ namespace Haukcode.sACN.Model
         /// </summary>
         internal static DMPLayer Parse(BigEndianBinaryReader reader, DMPLayer? scratchLayer)
         {
-            short flagsAndDMPLength = reader.ReadInt16();
+            ushort flagsAndDMPLength = reader.ReadUInt16();
             byte vector3 = reader.ReadByte();
             Debug.Assert(vector3 == DMP_VECTOR);
             byte addressTypeAndDataType = reader.ReadByte();
             Debug.Assert(addressTypeAndDataType == ADDRESS_TYPE_AND_DATA_TYPE);
-            short firstPropertyAddress = reader.ReadInt16();
+            ushort firstPropertyAddress = reader.ReadUInt16();
             Debug.Assert(firstPropertyAddress == FIRST_PROPERTY_ADDRESS);
-            short addressIncrement = reader.ReadInt16();
+            ushort addressIncrement = reader.ReadUInt16();
             Debug.Assert(addressIncrement == ADDRESS_INCREMENT);
-            short propertyValueCount = reader.ReadInt16();
+            ushort propertyValueCount = reader.ReadUInt16();
 
             byte startCode = reader.ReadByte();
 
