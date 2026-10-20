@@ -62,7 +62,7 @@ namespace Haukcode.sACN.Test
             await client.SendDmxData(IPAddress.Loopback, 42, new byte[512], terminate: true);
 
             for (int i = 0; i < 100 && received.Count < 4; i++)
-                await Task.Delay(20);
+                await Task.Delay(20, TestContext.Current.CancellationToken);
 
             var packets = received.ToArray();
             Assert.Equal(4, packets.Length);

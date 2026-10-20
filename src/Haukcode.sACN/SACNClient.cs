@@ -104,14 +104,25 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     // even a benign race here would be harmless.
     private readonly byte[] sequenceIds = new byte[ushort.MaxValue + 1];
     private readonly byte[] sequenceIdsSync = new byte[ushort.MaxValue + 1];
-    private readonly HashSet<ushort> dmxUniverses = [];
-    private readonly HashSet<ushort> triggerUniverses = [];
-    private readonly Dictionary<IPAddress, (IPEndPoint EndPoint, bool Multicast)> endPointCache = [];
-    private readonly Dictionary<ushort, IPEndPoint> universeMulticastEndpoints = [];
 
-    // Serialized destinations, so the hot path never re-serializes an IPEndPoint. Only touched
-    // from the single queue-writer thread (the send-data factory), same as the caches above.
-    private readonly Dictionary<IPEndPoint, SocketAddress> socketAddressCache = [];
+    // What each universe is joined for, indexed by universe id. Join/Drop change it under
+    // subscriptionLock on the caller's thread; the receive thread reads it for every data packet
+    // without the lock, which is safe because each element is written whole.
+    private readonly SubscribeModes[] subscriptions = new SubscribeModes[ushort.MaxValue + 1];
+    private readonly object subscriptionLock = new object();
+
+    // Send-side destination caches. The queue-writer thread (SendDmxData), the sync barrier and
+    // the public SendPacketImmediately can all resolve a destination, so these are concurrent.
+    // Lookups of existing entries take no lock, which is all the hot path does after warm-up.
+    private readonly ConcurrentDictionary<IPAddress, (IPEndPoint EndPoint, bool Multicast)> endPointCache = new();
+    private readonly ConcurrentDictionary<ushort, IPEndPoint> universeMulticastEndpoints = new();
+
+    // Serialized destinations, so the hot path never re-serializes an IPEndPoint
+    private readonly ConcurrentDictionary<IPEndPoint, SocketAddress> socketAddressCache = new();
+
+    // The destination address of received packets, resolved once per address. Only touched on
+    // the receive thread.
+    private readonly Dictionary<IPAddress, IPEndPoint?> receiveDestinationCache = [];
 
     private bool listenDiscoveryMulticastGroup = false;
 
@@ -181,19 +192,13 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         if (this.listenSocket == null)
             throw new ArgumentNullException();
 
-        if (this.dmxUniverses.Contains(universeId))
-            throw new InvalidOperationException($"You have already joined the DMX Universe {universeId}");
-
-        // See if we already have a listener for this universe for triggers
-        if (!this.triggerUniverses.Contains(universeId))
+        lock (this.subscriptionLock)
         {
-            // Join group
-            var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
-        }
+            if ((this.subscriptions[universeId] & SubscribeModes.DmxData) != 0)
+                throw new InvalidOperationException($"You have already joined the DMX Universe {universeId}");
 
-        // Add to the list of universes we have joined
-        this.dmxUniverses.Add(universeId);
+            Subscribe(universeId, SubscribeModes.DmxData);
+        }
     }
 
     public void DropDMXUniverse(ushort universeId)
@@ -201,34 +206,23 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         if (this.listenSocket == null)
             return;
 
-        if (!this.dmxUniverses.Contains(universeId))
-            throw new InvalidOperationException($"You are trying to drop the DMX Universe {universeId} but you are not a member");
-
-        if (!this.triggerUniverses.Contains(universeId))
+        lock (this.subscriptionLock)
         {
-            // Drop group
-            var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
-        }
+            if ((this.subscriptions[universeId] & SubscribeModes.DmxData) == 0)
+                throw new InvalidOperationException($"You are trying to drop the DMX Universe {universeId} but you are not a member");
 
-        // Remove from the list of universes we have joined
-        this.dmxUniverses.Remove(universeId);
+            Unsubscribe(universeId, SubscribeModes.DmxData);
+        }
     }
 
     public void DropAllTriggerUniverses()
     {
-        foreach (ushort universeId in this.triggerUniverses)
-        {
-            DropDMXUniverseForTrigger(universeId);
-        }
+        DropAll(SubscribeModes.Trigger);
     }
 
     public void DropAllInputUniverses()
     {
-        foreach (ushort universeId in this.dmxUniverses)
-        {
-            DropDMXUniverse(universeId);
-        }
+        DropAll(SubscribeModes.DmxData);
     }
 
     public void JoinDMXUniverseForTrigger(ushort universeId)
@@ -236,18 +230,12 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         if (this.listenSocket == null)
             throw new ArgumentNullException();
 
-        if (this.triggerUniverses.Contains(universeId))
-            // Already joined
-            return;
-
-        if (!this.dmxUniverses.Contains(universeId))
+        lock (this.subscriptionLock)
         {
-            // Join group
-            var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
-            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+            // Already joined is fine
+            if ((this.subscriptions[universeId] & SubscribeModes.Trigger) == 0)
+                Subscribe(universeId, SubscribeModes.Trigger);
         }
-
-        this.triggerUniverses.Add(universeId);
     }
 
     public void DropDMXUniverseForTrigger(ushort universeId)
@@ -255,19 +243,59 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
         if (this.listenSocket == null)
             return;
 
-        if (!this.triggerUniverses.Contains(universeId))
-            // Already dropped
-            return;
-
-        if (!this.dmxUniverses.Contains(universeId))
+        lock (this.subscriptionLock)
         {
-            // Drop group
+            // Already dropped is fine
+            if ((this.subscriptions[universeId] & SubscribeModes.Trigger) != 0)
+                Unsubscribe(universeId, SubscribeModes.Trigger);
+        }
+    }
+
+    /// <summary>
+    /// Add <paramref name="mode"/> for the universe, joining its multicast group if nothing else
+    /// had. Called under subscriptionLock.
+    /// </summary>
+    private void Subscribe(ushort universeId, SubscribeModes mode)
+    {
+        var current = this.subscriptions[universeId];
+        if (current == SubscribeModes.None)
+        {
+            var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
+            MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, option);
+        }
+
+        this.subscriptions[universeId] = current | mode;
+    }
+
+    /// <summary>
+    /// Remove <paramref name="mode"/> for the universe, leaving its multicast group once nothing
+    /// else needs it. Called under subscriptionLock.
+    /// </summary>
+    private void Unsubscribe(ushort universeId, SubscribeModes mode)
+    {
+        var remaining = this.subscriptions[universeId] & ~mode;
+        if (remaining == SubscribeModes.None)
+        {
             var option = new MulticastOption(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Address);
             MembershipSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.DropMembership, option);
         }
 
-        // Remove from the list of universes we have joined
-        this.triggerUniverses.Remove(universeId);
+        this.subscriptions[universeId] = remaining;
+    }
+
+    private void DropAll(SubscribeModes mode)
+    {
+        if (this.listenSocket == null)
+            return;
+
+        lock (this.subscriptionLock)
+        {
+            for (int universeId = 0; universeId < this.subscriptions.Length; universeId++)
+            {
+                if ((this.subscriptions[universeId] & mode) != 0)
+                    Unsubscribe((ushort)universeId, mode);
+            }
+        }
     }
 
     /// <summary>
@@ -443,7 +471,6 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// <summary>
     /// Factory for the send-data object: resolves the destination (multicast group for the universe
     /// unless an explicit unicast address was given) and rents a pooled object where possible.
-    /// Runs on the single queue-writer thread, which is what makes the caches below safe.
     /// </summary>
     private Func<SendData> CreateSendData(ushort universeId, IPAddress? destination)
     {
@@ -452,60 +479,42 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
 
     private SendData BuildSendData(ushort universeId, IPAddress? destination)
     {
+        var sendDataDestination = ResolveDestination(universeId, destination);
+
+        // Reuse a spent send-data object returned by the sender instead of allocating a new
+        // one for every packet on the hot path. Every field is rewritten below.
+        var pooledSendData = RentSendData();
+        if (pooledSendData != null)
         {
-            IPEndPoint? sendDataDestination = null;
+            pooledSendData.Destination = sendDataDestination;
+            pooledSendData.DestinationAddress = this.socketAddressCache.GetOrAdd(sendDataDestination, static endPoint => endPoint.Serialize());
 
-            if (destination != null)
-            {
-                // Specified destination (but could be multicast, so check for that)
-                if (!this.endPointCache.TryGetValue(destination, out var ipEndPointDetails))
-                {
-                    ipEndPointDetails = (new IPEndPoint(destination, this.localEndPoint.Port), Haukcode.Network.Utils.IsMulticast(destination));
-                    this.endPointCache.Add(destination, ipEndPointDetails);
-                }
-
-                sendDataDestination = ipEndPointDetails.Multicast ? null : ipEndPointDetails.EndPoint;
-            }
-
-            if (sendDataDestination == null)
-            {
-                // Set the destination to the multicast address
-                if (!universeMulticastEndpoints.TryGetValue(universeId, out sendDataDestination))
-                {
-                    sendDataDestination = new IPEndPoint(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Port);
-                    universeMulticastEndpoints.Add(universeId, sendDataDestination);
-                }
-            }
-
-            // Reuse a spent send-data object returned by the sender instead of allocating a new
-            // one for every packet on the hot path. Every field is rewritten below.
-            var pooledSendData = RentSendData();
-            if (pooledSendData != null)
-            {
-                pooledSendData.Destination = sendDataDestination;
-                pooledSendData.DestinationAddress = GetSocketAddress(sendDataDestination);
-
-                return pooledSendData;
-            }
-
-            // Pool empty (startup only) — the constructor serializes the destination itself.
-            return new SendData(sendDataDestination);
+            return pooledSendData;
         }
+
+        // Pool empty (startup only) — the constructor serializes the destination itself.
+        return new SendData(sendDataDestination);
     }
 
     /// <summary>
-    /// Serialized form of a destination, cached. Called from the send-data factory on the single
-    /// queue-writer thread.
+    /// The endpoint to send to: <paramref name="destination"/> when it's a unicast address,
+    /// otherwise (none given, or a multicast address) the universe's multicast group.
     /// </summary>
-    private SocketAddress GetSocketAddress(IPEndPoint endPoint)
+    private IPEndPoint ResolveDestination(ushort universeId, IPAddress? destination)
     {
-        if (!this.socketAddressCache.TryGetValue(endPoint, out var socketAddress))
+        int port = this.localEndPoint.Port;
+
+        if (destination != null)
         {
-            socketAddress = endPoint.Serialize();
-            this.socketAddressCache.Add(endPoint, socketAddress);
+            var details = this.endPointCache.GetOrAdd(destination,
+                static (address, port) => (new IPEndPoint(address, port), Haukcode.Network.Utils.IsMulticast(address)), port);
+
+            if (!details.Multicast)
+                return details.EndPoint;
         }
 
-        return socketAddress;
+        return this.universeMulticastEndpoints.GetOrAdd(universeId,
+            static (universe, port) => new IPEndPoint(Haukcode.Network.Utils.GetMulticastAddress(universe), port), port);
     }
 
     /// <summary>
@@ -517,31 +526,7 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
     /// <param name="important">Important</param>
     public Task SendPacketImmediately(ushort universeId, IPAddress? destination, SACNPacket packet, bool important = false)
     {
-        IPEndPoint? sendDataDestination = null;
-
-        if (destination != null)
-        {
-            // Specified destination (but could be multicast, so check for that)
-            if (!this.endPointCache.TryGetValue(destination, out var ipEndPointDetails))
-            {
-                ipEndPointDetails = (new IPEndPoint(destination, this.localEndPoint.Port), Haukcode.Network.Utils.IsMulticast(destination));
-                this.endPointCache.Add(destination, ipEndPointDetails);
-            }
-
-            sendDataDestination = ipEndPointDetails.Multicast ? null : ipEndPointDetails.EndPoint;
-        }
-
-        if (sendDataDestination == null)
-        {
-            // Set the destination to the multicast address
-            if (!universeMulticastEndpoints.TryGetValue(universeId, out sendDataDestination))
-            {
-                sendDataDestination = new IPEndPoint(Haukcode.Network.Utils.GetMulticastAddress(universeId), this.localEndPoint.Port);
-                universeMulticastEndpoints.Add(universeId, sendDataDestination);
-            }
-        }
-
-        return SendPacketImmediately(sendDataDestination, packet, important);
+        return SendPacketImmediately(ResolveDestination(universeId, destination), packet, important);
     }
 
     public async Task SendPacketImmediately(IPEndPoint destination, SACNPacket packet, bool important = false)
@@ -642,25 +627,16 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
             parsedObject.TimestampMS = timestampMS;
             parsedObject.Source = sourceIP;
             parsedObject.Packet = packet;
-            parsedObject.SubscribeMode = SubscribeModes.None;
+            parsedObject.SubscribeMode = dataFramingLayer != null ? this.subscriptions[dataFramingLayer.UniverseId] : SubscribeModes.None;
 
-            if (dataFramingLayer != null)
+            // Multicast destinations are reported as null, unicast ones as the endpoint
+            if (!this.receiveDestinationCache.TryGetValue(destinationIP, out var destination))
             {
-                ushort universeId = dataFramingLayer.UniverseId;
-
-                if (this.dmxUniverses.Contains(universeId))
-                    parsedObject.SubscribeMode |= SubscribeModes.DmxData;
-                if (this.triggerUniverses.Contains(universeId))
-                    parsedObject.SubscribeMode |= SubscribeModes.Trigger;
+                destination = Haukcode.Network.Utils.IsMulticast(destinationIP) ? null : new IPEndPoint(destinationIP, this.localEndPoint.Port);
+                this.receiveDestinationCache.Add(destinationIP, destination);
             }
 
-            if (!this.endPointCache.TryGetValue(destinationIP, out var ipEndPoint))
-            {
-                ipEndPoint = (new IPEndPoint(destinationIP, this.localEndPoint.Port), Haukcode.Network.Utils.IsMulticast(destinationIP));
-                this.endPointCache.Add(destinationIP, ipEndPoint);
-            }
-
-            parsedObject.Destination = ipEndPoint.Multicast ? null : ipEndPoint.EndPoint;
+            parsedObject.Destination = destination;
 
             return parsedObject;
         }
