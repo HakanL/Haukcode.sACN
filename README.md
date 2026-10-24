@@ -689,6 +689,10 @@ sudo sysctl -w net.ipv4.igmp_max_memberships=100
 
 **Windows**: Verify Windows Firewall allows multicast traffic
 
+## Used in production
+
+This library is used in [DMX Core 100](https://dmxcore.com), a DMX lighting controller for permanent installations that runs on Windows, macOS and Linux, or on its own touchscreen hardware. There it sends, receives, records and routes sACN, as part of up to 800 universes of network output.
+
 ## Credits
 
 - Original fork from [kadmium-sacn-core](https://github.com/iKadmium/kadmium-sacn-core) by Jesse Higginson
