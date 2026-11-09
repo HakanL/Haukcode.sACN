@@ -181,6 +181,10 @@ public class SACNClient : Client<SACNClient.SendData, ReceiveDataPacket>
                 // Bind to the local interface (ephemeral port)
                 socket.Bind(new IPEndPoint(localAddress, 0));
 
+                // Unicast must leave through the interface that owns the address too, not
+                // whichever one the routing table prefers (Linux/macOS weak host model)
+                Haukcode.Network.Utils.BindToInterfaceOfAddress(socket, localAddress);
+
                 socket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 20);
             }
 
